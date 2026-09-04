@@ -45,7 +45,8 @@ export function seedDemo(db: MemoryDb, now: Date = new Date()): { tenant: Tenant
     department: a.department,
     locationState: a.locationState ?? 'CA',
     timezone: a.timezone ?? tenant.timezone,
-    isSupervisor: a.isSupervisor ?? false,
+    role: a.role ?? 'user',
+    isSupervisor: (a.role ?? 'user') !== 'user',
     managedDepartments: a.managedDepartments,
     hostUserId: a.hostUserId,
     hrisEmployeeId: a.hrisEmployeeId ?? null,
@@ -81,13 +82,23 @@ export function seedDemo(db: MemoryDb, now: Date = new Date()): { tenant: Tenant
   };
 
   // Supervisor (also the panel operator).
+  // Sam — ADMIN: full board (all departments) + HRIS connector / tenant config.
   register(
     mkAgent({
-      displayName: 'Sam Ortiz (supervisor)',
+      displayName: 'Sam Ortiz (admin)',
       hostUserId: 'u-sam',
       department: 'Support',
-      isSupervisor: true,
-      managedDepartments: ['Support', 'Sales'], // manages these; NOT Billing
+      role: 'admin',
+    }),
+  );
+  // Rosa — SUPERVISOR (manager): sees only Sales, cannot configure HRIS.
+  register(
+    mkAgent({
+      displayName: 'Rosa Lang (Sales manager)',
+      hostUserId: 'u-rosa',
+      department: 'Sales',
+      role: 'supervisor',
+      managedDepartments: ['Sales'],
     }),
   );
 

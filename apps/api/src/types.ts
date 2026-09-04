@@ -2,6 +2,7 @@
 // The in-memory store uses these directly; the Prisma store maps to/from them.
 import type { PunchEventType, AgentStatus } from '@timeclock/core';
 
+export type Role = 'admin' | 'supervisor' | 'user';
 export type EventSource = 'WIDGET' | 'SUPERVISOR' | 'SYSTEM' | 'IMPORT';
 export type EventStatus = 'ACTIVE' | 'SUPERSEDED' | 'PENDING_APPROVAL' | 'REJECTED';
 export type ExceptionType =
@@ -41,8 +42,12 @@ export interface Agent {
   department: string; // coverage is measured per department
   locationState: string; // USPS work-state code (CA, TX, …) → wage rules
   timezone: string;
-  isSupervisor: boolean;
-  // Departments that report to this supervisor. Empty/undefined = sees all (org admin).
+  // Role tiers: admin (full + HRIS/tenant config) > supervisor (manager: board +
+  // employee ops, scoped to their departments) > user (team member: widget only).
+  role: Role;
+  isSupervisor: boolean; // convenience: role is admin or supervisor (drives the board)
+  // Departments that report to this supervisor. Empty/undefined = sees all.
+  // Admins always see all departments regardless.
   managedDepartments?: string[];
   hostUserId: string;
   hrisEmployeeId: string | null;

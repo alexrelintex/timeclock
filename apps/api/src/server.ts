@@ -43,7 +43,7 @@ import {
   verifyWebhookSignature,
 } from './identity.js';
 import { openSse, readBody, readJson, sendFile, sendJson, sendText } from './http.js';
-import type { Agent, ScheduleKindT, Tenant } from './types.js';
+import type { Agent, Role, ScheduleKindT, Tenant } from './types.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = resolve(HERE, '../public');
@@ -197,12 +197,20 @@ function resolveAgent(req: IncomingMessage, url: URL): Resolved {
   throw new AuthError(401, 'missing identity token');
 }
 
+/** Manager-level: admin or supervisor. Gates the supervisor board + employee ops. */
 function requireSupervisor(r: Resolved): void {
-  if (!r.agent.isSupervisor) throw new AuthError(403, 'supervisor only');
+  if (r.agent.role !== 'admin' && r.agent.role !== 'supervisor') {
+    throw new AuthError(403, 'supervisor or admin only');
+  }
+}
+/** Admin-only: HRIS connector config, tenant settings, role assignment. */
+function requireAdmin(r: Resolved): void {
+  if (r.agent.role !== 'admin') throw new AuthError(403, 'admin only');
 }
 
-/** Departments a supervisor may see, or null = all (org admin). */
+/** Departments a supervisor may see. Admins see all (null). */
 function managedDepartments(sup: Agent): string[] | null {
+  if (sup.role === 'admin') return null; // admins are not department-scoped
   return sup.managedDepartments && sup.managedDepartments.length ? sup.managedDepartments : null;
 }
 /**
@@ -237,6 +245,21 @@ function scopeForecast(result: ForecastResult, sup: Agent): ForecastResult {
 /** CSV cell: quote when it contains comma/quote/newline; double embedded quotes. */
 function csvCell(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/**
+ * Determine the role to assign, preventing privilege escalation: only an admin
+ * caller may grant 'admin' or 'supervisor'; anyone else creates 'user's.
+ */
+function resolveAssignableRole(caller: Agent, requestedRole?: unknown, legacyIsSupervisor?: unknown): Role {
+  const requested =
+    typeof requestedRole === 'string'
+      ? requestedRole
+      : legacyIsSupervisor === true
+        ? 'supervisor'
+        : 'user';
+  if (caller.role !== 'admin') return 'user';
+  return requested === 'admin' || requested === 'supervisor' ? requested : 'user';
 }
 
 /** Stable-ish host identity id for a manually-created or pulled employee. */
@@ -703,12 +726,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     // ---- HRIS connectors (admin): catalog, get/set this tenant's connector
     if (p === '/api/admin/hris/catalog' && method === 'GET') {
       const r = resolveAgent(req, url);
-      requireSupervisor(r);
+      requireAdmin(r);
       return sendJson(res, 200, { connectors: catalogList() });
     }
     if (p === '/api/admin/hris' && method === 'GET') {
       const r = resolveAgent(req, url);
-      requireSupervisor(r);
+      requireAdmin(r);
       const provider = r.tenant.hrisProvider ?? 'none';
       const info = CONNECTORS[provider];
       const cfg = (r.tenant.hrisConfig ?? {}) as Record<string, unknown>;
@@ -722,7 +745,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
     if (p === '/api/admin/hris' && method === 'POST') {
       const r = resolveAgent(req, url);
-      requireSupervisor(r);
+      requireAdmin(r);
       const body = await readJson<{ provider?: string; config?: Record<string, unknown> }>(req);
       const provider = body.provider ?? 'none';
       const info = CONNECTORS[provider];
@@ -754,10 +777,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const scopeSet = scope ? new Set(scope) : null;
       const all = db
         .listAllAgents(tenant.id)
-        .filter((a) => (includeArchived || !a.archivedAt) && (!scopeSet || a.isSupervisor || scopeSet.has(a.department)));
+        .filter((a) => (includeArchived || !a.archivedAt) && (!scopeSet || scopeSet.has(a.department)));
       return sendJson(res, 200, {
         hrisProvider: tenant.hrisProvider,
         visibleDepartments: managedDepartments(r.agent) ?? db.departments(tenant.id),
+        viewerRole: r.agent.role,
         includeArchived,
         archivedCount: db.listAllAgents(tenant.id).filter((a) => a.archivedAt).length,
         employees: all.map((a) => ({
@@ -766,6 +790,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           department: a.department,
           locationState: a.locationState,
           timezone: a.timezone,
+          role: a.role,
+          managedDepartments: a.managedDepartments ?? null,
           isSupervisor: a.isSupervisor,
           hostUserId: a.hostUserId,
           hrisEmployeeId: a.hrisEmployeeId,
@@ -792,6 +818,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const hrisEmployeeId = syncToHris
         ? (typeof b.hrisEmployeeId === 'string' && b.hrisEmployeeId.trim()) || `mock-${randomUUID().slice(0, 8)}`
         : null;
+      // Only an admin may assign a role above 'user'; managers create team members.
+      const role = resolveAssignableRole(r.agent, b.role, b.isSupervisor);
       const agent: Agent = {
         id: randomUUID(),
         tenantId: r.tenant.id,
@@ -799,7 +827,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         department: typeof b.department === 'string' && b.department.trim() ? b.department.trim() : 'General',
         locationState: typeof b.locationState === 'string' && b.locationState.trim() ? b.locationState.trim().toUpperCase() : 'CA',
         timezone: typeof b.timezone === 'string' && b.timezone.trim() ? b.timezone.trim() : r.tenant.timezone,
-        isSupervisor: b.isSupervisor === true,
+        role,
+        isSupervisor: role !== 'user',
+        managedDepartments:
+          role === 'supervisor' && Array.isArray(b.managedDepartments)
+            ? (b.managedDepartments as unknown[]).filter((d): d is string => typeof d === 'string')
+            : undefined,
         hostUserId: makeHostUserId(r.tenant.id, displayName),
         hrisEmployeeId,
         hrisDepartmentId: typeof b.hrisDepartmentId === 'string' ? b.hrisDepartmentId : null,
@@ -846,6 +879,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             department: b.department?.trim() || 'General',
             locationState: (b.locationState?.trim() || 'CA').toUpperCase(),
             timezone: r.tenant.timezone,
+            role: 'user',
             isSupervisor: false,
             hostUserId: makeHostUserId(r.tenant.id, name),
             hrisEmployeeId: emp.hrisEmployeeId, // synced by construction
@@ -891,8 +925,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             ? b.locationState.trim().toUpperCase()
             : agent.locationState,
         timezone: typeof b.timezone === 'string' && b.timezone.trim() ? b.timezone.trim() : agent.timezone,
-        isSupervisor: typeof b.isSupervisor === 'boolean' ? b.isSupervisor : agent.isSupervisor,
       };
+      // Role changes are admin-only; a manager editing a profile can't change tiers.
+      if (r.agent.role === 'admin' && (typeof b.role === 'string' || typeof b.isSupervisor === 'boolean')) {
+        next.role = resolveAssignableRole(r.agent, b.role, b.isSupervisor);
+        next.isSupervisor = next.role !== 'user';
+        if (next.role === 'supervisor' && Array.isArray(b.managedDepartments)) {
+          next.managedDepartments = (b.managedDepartments as unknown[]).filter((d): d is string => typeof d === 'string');
+        } else if (next.role !== 'supervisor') {
+          next.managedDepartments = undefined;
+        }
+      }
       db.upsertAgent(next);
       return sendJson(res, 200, { ok: true, agentId: next.id });
     }
@@ -974,7 +1017,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (p === '/api/supervisor/snapshot' && method === 'GET') {
       const r = resolveAgent(req, url);
       requireSupervisor(r);
-      return sendJson(res, 200, buildSupervisorSnapshot(db, r.tenant.id, new Date(), managedDepartments(r.agent)));
+      return sendJson(res, 200, buildSupervisorSnapshot(db, r.tenant.id, new Date(), managedDepartments(r.agent), r.agent.role));
     }
 
     // ---- supervisor SSE
@@ -985,7 +1028,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       let scheduled = false;
       const push = () => {
         scheduled = false;
-        sse.send('snapshot', buildSupervisorSnapshot(db, r.tenant.id, new Date(), managedDepartments(r.agent)));
+        sse.send('snapshot', buildSupervisorSnapshot(db, r.tenant.id, new Date(), managedDepartments(r.agent), r.agent.role));
       };
       push();
       const listener = (e: { tenantId?: string }) => {

@@ -107,6 +107,7 @@ export interface SupervisorSnapshot {
   now: string;
   serverTimezone: string; // the supervisor sees all times in this (server/HQ) zone
   visibleDepartments: string[]; // departments this supervisor may see (for the filter)
+  viewerRole: string; // caller's role: admin | supervisor — gates admin-only UI
   thresholdPct: number;
   coverage: DepartmentCoverage[];
   overall: { activePct: number; active: number; scheduled: number };
@@ -121,6 +122,7 @@ export function buildSupervisorSnapshot(
   tenantId: string,
   now: Date,
   allowedDepartments?: string[] | null,
+  viewerRole = 'supervisor',
 ): SupervisorSnapshot {
   const tenant = db.getTenant(tenantId)!;
   const threshold = tenant.coverageThresholdPct;
@@ -208,6 +210,7 @@ export function buildSupervisorSnapshot(
     now: now.toISOString(),
     serverTimezone: tenant.timezone,
     visibleDepartments: scopedDepts,
+    viewerRole,
     thresholdPct: threshold,
     coverage,
     overall,
