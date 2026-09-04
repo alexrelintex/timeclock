@@ -42,13 +42,14 @@ export interface Agent {
   department: string; // coverage is measured per department
   locationState: string; // USPS work-state code (CA, TX, …) → wage rules
   timezone: string;
-  // Role tiers: admin (full + HRIS/tenant config) > manager (board + employee ops
-  // across MULTIPLE departments) > supervisor (same, but ONE department — their
-  // own by default) > user (team member: widget only).
+  // Role tiers: admin (full + HRIS/tenant config) > manager (board + employee ops,
+  // multi-department intent) > supervisor (same, one department by default) > user
+  // (team member: widget only).
   role: Role;
   isSupervisor: boolean; // convenience: role is not 'user' (i.e. has board access)
-  // Departments this role oversees. Managers may span several; a supervisor is
-  // scoped to a single department (the first here, else their own). Admins see all.
+  // Departments this role oversees. Both manager and supervisor honor an assigned
+  // list; when none is assigned the scope defaults to their own single department.
+  // Admins see all departments regardless.
   managedDepartments?: string[];
   hostUserId: string;
   hrisEmployeeId: string | null;

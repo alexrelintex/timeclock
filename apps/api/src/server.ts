@@ -228,17 +228,18 @@ function clampRole(jwtRole: Role | undefined, recordRole: Role): Role {
 
 /**
  * Departments a role may see:
- *   admin      → all (null, unscoped)
- *   manager    → its managedDepartments (MULTIPLE); falls back to its own department
- *   supervisor → exactly ONE department: the first managed one, else its own
- *   user       → its own department (board is gated off anyway)
+ *   admin                 → all (null, unscoped)
+ *   manager / supervisor  → its explicitly-assigned managedDepartments; when none
+ *                           are assigned it defaults to a single department (its
+ *                           own). So a supervisor is one department by DEFAULT but
+ *                           can hold several when an admin assigns them; a manager
+ *                           is the same resolution with a multi-department intent.
+ *   user                  → its own department (board is gated off anyway)
  */
 function managedDepartments(sup: Agent): string[] | null {
   if (sup.role === 'admin') return null;
   const managed = sup.managedDepartments?.filter(Boolean) ?? [];
-  if (sup.role === 'manager') return managed.length ? managed : [sup.department];
-  // supervisor (and user): a single department
-  return [managed[0] ?? sup.department];
+  return managed.length ? managed : [sup.department];
 }
 /**
  * Resolve the department filter for a supervisor request: the intersection of
