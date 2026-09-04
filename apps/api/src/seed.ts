@@ -91,14 +91,23 @@ export function seedDemo(db: MemoryDb, now: Date = new Date()): { tenant: Tenant
       role: 'admin',
     }),
   );
-  // Rosa — SUPERVISOR (manager): sees only Sales, cannot configure HRIS.
+  // Rosa — MANAGER: oversees MULTIPLE departments (Support + Sales), no HRIS config.
   register(
     mkAgent({
-      displayName: 'Rosa Lang (Sales manager)',
+      displayName: 'Rosa Lang (manager)',
       hostUserId: 'u-rosa',
       department: 'Sales',
+      role: 'manager',
+      managedDepartments: ['Support', 'Sales'],
+    }),
+  );
+  // Vera — SUPERVISOR: scoped to a single department (Sales, her own).
+  register(
+    mkAgent({
+      displayName: 'Vera Cole (Sales supervisor)',
+      hostUserId: 'u-vera',
+      department: 'Sales',
       role: 'supervisor',
-      managedDepartments: ['Sales'],
     }),
   );
 

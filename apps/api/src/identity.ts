@@ -20,7 +20,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Role } from './types.js';
 
-const ROLES: ReadonlySet<string> = new Set<Role>(['admin', 'supervisor', 'user']);
+const ROLES: ReadonlySet<string> = new Set<Role>(['admin', 'manager', 'supervisor', 'user']);
 
 export interface IdentityClaims {
   tenantId: string; // iss

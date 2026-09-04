@@ -205,19 +205,17 @@ function resolveAgent(req: IncomingMessage, url: URL): Resolved {
   throw new AuthError(401, 'missing identity token');
 }
 
-/** Manager-level: admin or supervisor. Gates the supervisor board + employee ops. */
+/** Board access: admin, manager, or supervisor (not a plain user). */
 function requireSupervisor(r: Resolved): void {
-  if (r.agent.role !== 'admin' && r.agent.role !== 'supervisor') {
-    throw new AuthError(403, 'supervisor or admin only');
-  }
+  if (r.agent.role === 'user') throw new AuthError(403, 'supervisor, manager, or admin only');
 }
 /** Admin-only: HRIS connector config, tenant settings, role assignment. */
 function requireAdmin(r: Resolved): void {
   if (r.agent.role !== 'admin') throw new AuthError(403, 'admin only');
 }
 
-const ROLE_RANK: Record<Role, number> = { user: 0, supervisor: 1, admin: 2 };
-const RANK_ROLE: Role[] = ['user', 'supervisor', 'admin'];
+const ROLE_RANK: Record<Role, number> = { user: 0, supervisor: 1, manager: 2, admin: 3 };
+const RANK_ROLE: Role[] = ['user', 'supervisor', 'manager', 'admin'];
 /**
  * Effective role = min(host-asserted role, stored role). The stored role is the
  * ceiling: a host token can drop privileges for a session but never grant above
@@ -228,10 +226,19 @@ function clampRole(jwtRole: Role | undefined, recordRole: Role): Role {
   return RANK_ROLE[Math.min(ROLE_RANK[jwtRole], ROLE_RANK[recordRole])];
 }
 
-/** Departments a supervisor may see. Admins see all (null). */
+/**
+ * Departments a role may see:
+ *   admin      → all (null, unscoped)
+ *   manager    → its managedDepartments (MULTIPLE); falls back to its own department
+ *   supervisor → exactly ONE department: the first managed one, else its own
+ *   user       → its own department (board is gated off anyway)
+ */
 function managedDepartments(sup: Agent): string[] | null {
-  if (sup.role === 'admin') return null; // admins are not department-scoped
-  return sup.managedDepartments && sup.managedDepartments.length ? sup.managedDepartments : null;
+  if (sup.role === 'admin') return null;
+  const managed = sup.managedDepartments?.filter(Boolean) ?? [];
+  if (sup.role === 'manager') return managed.length ? managed : [sup.department];
+  // supervisor (and user): a single department
+  return [managed[0] ?? sup.department];
 }
 /**
  * Resolve the department filter for a supervisor request: the intersection of
@@ -279,7 +286,9 @@ function resolveAssignableRole(caller: Agent, requestedRole?: unknown, legacyIsS
         ? 'supervisor'
         : 'user';
   if (caller.role !== 'admin') return 'user';
-  return requested === 'admin' || requested === 'supervisor' ? requested : 'user';
+  return requested === 'admin' || requested === 'manager' || requested === 'supervisor'
+    ? (requested as Role)
+    : 'user';
 }
 
 /** Stable-ish host identity id for a manually-created or pulled employee. */
@@ -851,7 +860,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         role,
         isSupervisor: role !== 'user',
         managedDepartments:
-          role === 'supervisor' && Array.isArray(b.managedDepartments)
+          (role === 'manager' || role === 'supervisor') && Array.isArray(b.managedDepartments)
             ? (b.managedDepartments as unknown[]).filter((d): d is string => typeof d === 'string')
             : undefined,
         hostUserId: makeHostUserId(r.tenant.id, displayName),
@@ -951,9 +960,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (r.agent.role === 'admin' && (typeof b.role === 'string' || typeof b.isSupervisor === 'boolean')) {
         next.role = resolveAssignableRole(r.agent, b.role, b.isSupervisor);
         next.isSupervisor = next.role !== 'user';
-        if (next.role === 'supervisor' && Array.isArray(b.managedDepartments)) {
+        if ((next.role === 'manager' || next.role === 'supervisor') && Array.isArray(b.managedDepartments)) {
           next.managedDepartments = (b.managedDepartments as unknown[]).filter((d): d is string => typeof d === 'string');
-        } else if (next.role !== 'supervisor') {
+        } else if (next.role !== 'manager' && next.role !== 'supervisor') {
           next.managedDepartments = undefined;
         }
       }

@@ -157,7 +157,8 @@
             <label>Timezone <select id="efTz" style="width:210px"></select></label>
           </div>
           <div class="row" style="margin-top:10px">
-            <label id="efRoleWrap" class="hidden">Role <select id="efRole"><option value="user">User</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></label>
+            <label id="efRoleWrap" class="hidden">Role <select id="efRole"><option value="user">User</option><option value="supervisor">Supervisor</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label>
+            <label id="efDeptsWrap" class="hidden">Dept(s) <input type="text" id="efDepts" placeholder="Support,Sales" style="width:140px"></label>
             <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="efSync"> Sync to HRIS</label>
             <label id="efHrisWrap" class="hidden">HRIS employee id <input type="text" id="efHris" placeholder="(auto if blank)" style="width:150px"></label>
             <button class="lnk" id="efSave">Create</button>
@@ -448,6 +449,7 @@
       });
       $('empShowArch').addEventListener('change', loadEmployees);
       $('efSync').addEventListener('change', () => $('efHrisWrap').classList.toggle('hidden', !$('efSync').checked));
+      $('efRole').addEventListener('change', () => $('efDeptsWrap').classList.toggle('hidden', !['manager','supervisor'].includes($('efRole').value)));
       $('empNewBtn').addEventListener('click', () => $('empForm').classList.toggle('hidden'));
       $('efCancel').addEventListener('click', () => { $('empForm').classList.add('hidden'); $('efErr').textContent=''; });
 
@@ -480,9 +482,14 @@
           }
           const tag = e.archived ? ' <span class="chip" style="background:#2a1c33;color:#d8b4fe">archived</span>'
             : (!e.active ? ' <span class="chip" style="background:#3a1a1a;color:#fca5a5">inactive</span>' : '');
-          const roleChip = e.role && e.role !== 'user'
-            ? ` <span class="chip" style="background:${e.role==='admin'?'#1d3a1f;color:#86efac':'#1a2a45;color:#93c5fd'}">${e.role}${e.role==='supervisor'&&e.managedDepartments?' · '+e.managedDepartments.join('/'):''}</span>`
-            : '';
+          let roleChip = '';
+          if (e.role && e.role !== 'user') {
+            const style = e.role==='admin' ? '#1d3a1f;color:#86efac' : e.role==='manager' ? '#1a2a45;color:#93c5fd' : '#12303a;color:#7dd3fc';
+            const md = e.managedDepartments || [];
+            const scope = e.role==='manager' ? (md.length?md.join('/'):e.department)
+              : e.role==='supervisor' ? (md[0]||e.department) : '';
+            roleChip = ` <span class="chip" style="background:${style}">${e.role}${scope?' · '+scope:''}</span>`;
+          }
           return `<tr style="${e.active?'':'opacity:.55'}">
           <td>${e.displayName}${roleChip}${tag}</td>
           <td><span class="chip">${e.department}</span></td>
@@ -498,7 +505,7 @@
               <label>Dept <input type="text" class="ee-dept" value="${e.department}" style="width:110px"></label>
               <label>State <input type="text" class="ee-state" value="${e.locationState}" style="width:56px" maxlength="2"></label>
               <label>Timezone <select class="ee-tz" style="width:210px">${tzOptionsHTML(e.timezone)}</select></label>
-              ${empData.viewerRole === 'admin' ? `<label>Role <select class="ee-role">${['user','supervisor','admin'].map(rr=>`<option value="${rr}" ${e.role===rr?'selected':''}>${rr[0].toUpperCase()+rr.slice(1)}</option>`).join('')}</select></label>` : ''}
+              ${empData.viewerRole === 'admin' ? `<label>Role <select class="ee-role">${['user','supervisor','manager','admin'].map(rr=>`<option value="${rr}" ${e.role===rr?'selected':''}>${rr[0].toUpperCase()+rr.slice(1)}</option>`).join('')}</select></label> <label>Dept(s) <input type="text" class="ee-depts" value="${(e.managedDepartments||[]).join(',')}" placeholder="own dept" style="width:130px"></label>` : ''}
               <button class="rowbtn ee-save" data-save="${e.agentId}">Save</button>
               <button class="rowbtn ee-cancel" data-cancel="${e.agentId}">Cancel</button>
             </div>
@@ -516,6 +523,8 @@
           locationState: $('efState').value.trim(),
           timezone: $('efTz').value.trim(),
           role: $('efRole').value,
+          managedDepartments: (['manager','supervisor'].includes($('efRole').value) && $('efDepts').value.trim())
+            ? $('efDepts').value.split(',').map(s=>s.trim()).filter(Boolean) : undefined,
           syncToHris: $('efSync').checked,
           hrisEmployeeId: $('efHris').value.trim() || undefined,
         };
@@ -575,7 +584,11 @@
             locationState: g('ee-state').value.trim(),
             timezone: g('ee-tz').value.trim(),
           };
-          if (g('ee-role')) body.role = g('ee-role').value; // admin-only
+          if (g('ee-role')) { // admin-only
+            body.role = g('ee-role').value;
+            const depts = g('ee-depts') ? g('ee-depts').value.split(',').map(s=>s.trim()).filter(Boolean) : [];
+            if (['manager','supervisor'].includes(body.role) && depts.length) body.managedDepartments = depts;
+          }
 
           if (!body.displayName) { row.querySelector('.ee-err').textContent = 'Name required.'; return; }
           const r = await fetch(`/api/supervisor/employees/${save.dataset.save}${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
