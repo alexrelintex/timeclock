@@ -138,6 +138,17 @@
         </div>
         <div class="muted" style="font-size:12px;margin:-4px 0 8px">Deactivate is a soft-delete — punch logs are retained (5&nbsp;yr). After 90&nbsp;days inactive an employee can be archived (hidden); HRIS-synced employees’ punches are archived in the HRIS.</div>
 
+        <div class="wkeditor" id="hrisBox" style="margin-bottom:12px">
+          <div class="row">
+            <strong>HRIS connector</strong>
+            <select id="hrisProvider"></select>
+            <span class="muted" id="hrisStatus"></span>
+          </div>
+          <div id="hrisFields" class="row" style="margin-top:8px;gap:8px"></div>
+          <div class="row" style="margin-top:8px"><button class="rowbtn" id="hrisSave">Save connector</button> <span class="err ee-err" id="hrisMsg"></span></div>
+          <div class="muted" style="font-size:11px;margin-top:6px">One build ships every connector; each tenant is administered to its own. Secrets are write-only (shown masked).</div>
+        </div>
+
         <div class="wkeditor hidden" id="empForm">
           <div class="row">
             <label>Name <input type="text" id="efName" placeholder="Full name" style="min-width:180px"></label>
@@ -403,7 +414,38 @@
         if (empOpen) {
           if (!$('efTz').options.length) $('efTz').innerHTML = tzOptionsHTML(Intl.DateTimeFormat().resolvedOptions().timeZone);
           loadEmployees();
+          loadHris();
         }
+      });
+
+      // HRIS connector admin (per-tenant, from the catalog baked into the build)
+      let hrisCatalog = null;
+      async function loadHris() {
+        if (!hrisCatalog) hrisCatalog = (await (await fetch('/api/admin/hris/catalog' + q)).json()).connectors;
+        const cur = await (await fetch('/api/admin/hris' + q)).json();
+        const sel = $('hrisProvider');
+        sel.innerHTML = hrisCatalog.map(c => `<option value="${c.provider}" ${c.provider === cur.provider ? 'selected' : ''}>${c.label}</option>`).join('');
+        renderHrisFields(cur.provider, cur.config || {});
+        $('hrisStatus').textContent = cur.configured ? '● connected' : (cur.provider === 'none' ? 'internal only' : '⚠ not configured');
+        $('hrisStatus').style.color = cur.configured ? '#86efac' : '#94a3b8';
+      }
+      function renderHrisFields(provider, values) {
+        const c = hrisCatalog.find(x => x.provider === provider);
+        const fields = (c && c.configFields) || [];
+        $('hrisFields').innerHTML = fields.length
+          ? fields.map(f => `<label>${f.label} <input type="${f.secret ? 'password' : 'text'}" data-hf="${f.key}" value="${f.secret ? '' : (values[f.key] || '')}" placeholder="${f.secret && values[f.key] ? '(unchanged)' : ''}" style="width:150px"></label>`).join('')
+          : '<span class="muted">No configuration required.</span>';
+      }
+      $('hrisProvider').addEventListener('change', () => renderHrisFields($('hrisProvider').value, {}));
+      $('hrisSave').addEventListener('click', async () => {
+        $('hrisMsg').textContent = '';
+        const provider = $('hrisProvider').value;
+        const config = {};
+        $('hrisFields').querySelectorAll('[data-hf]').forEach(i => { if (i.value !== '') config[i.dataset.hf] = i.value; });
+        const res = await fetch('/api/admin/hris' + q, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, config }) });
+        const d = await res.json();
+        $('hrisMsg').textContent = res.ok ? (d.configured ? 'Saved — connected.' : 'Saved.') : (d.error || 'error');
+        if (res.ok) { loadHris(); loadEmployees(); }
       });
       $('empShowArch').addEventListener('change', loadEmployees);
       $('efSync').addEventListener('change', () => $('efHrisWrap').classList.toggle('hidden', !$('efSync').checked));

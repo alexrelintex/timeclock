@@ -81,6 +81,20 @@ export class MemoryDb implements PunchStore, OutboxStore {
   getTenant(id: string): Tenant | undefined {
     return this.tenants.get(id);
   }
+  /** Administer a tenant's HRIS connector: set provider + full config. */
+  setTenantHris(tenantId: string, provider: string | null, config: Record<string, unknown> | null): Tenant | undefined {
+    const t = this.tenants.get(tenantId);
+    if (!t) return undefined;
+    t.hrisProvider = provider;
+    t.hrisConfig = config;
+    return t;
+  }
+  /** Merge a patch into a tenant's HRIS config (e.g. rotated OAuth refresh token). */
+  updateTenantHrisConfig(tenantId: string, patch: Record<string, unknown>): void {
+    const t = this.tenants.get(tenantId);
+    if (!t) return;
+    t.hrisConfig = { ...(t.hrisConfig ?? {}), ...patch };
+  }
   getAgent(id: string): Agent | undefined {
     return this.agents.get(id);
   }

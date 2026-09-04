@@ -3,3 +3,4 @@ export * from './adapter';
 export * from './outboxWorker';
 export * from './paycor/adapter';
 export * from './paycor/time';
+export * from './gusto/adapter';

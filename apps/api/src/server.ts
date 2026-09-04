@@ -26,6 +26,7 @@ import { drainTenant } from '@timeclock/hris';
 import { MemoryDb, localDateOf } from './db.js';
 import { seedDemo } from './seed.js';
 import { TenantAdapterRegistry } from './hris/registry.js';
+import { CONNECTORS, catalogList } from './hris/catalog.js';
 import { sweep } from './compliance.js';
 import { buildAgentView, buildSupervisorSnapshot } from './snapshot.js';
 import {
@@ -697,6 +698,49 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const result = await runForecast(db, r.tenant.id, date, new Date(), summaryProvider);
       forecastCache.set(r.tenant.id, result);
       return sendJson(res, 200, scopeForecast(result, r.agent));
+    }
+
+    // ---- HRIS connectors (admin): catalog, get/set this tenant's connector
+    if (p === '/api/admin/hris/catalog' && method === 'GET') {
+      const r = resolveAgent(req, url);
+      requireSupervisor(r);
+      return sendJson(res, 200, { connectors: catalogList() });
+    }
+    if (p === '/api/admin/hris' && method === 'GET') {
+      const r = resolveAgent(req, url);
+      requireSupervisor(r);
+      const provider = r.tenant.hrisProvider ?? 'none';
+      const info = CONNECTORS[provider];
+      const cfg = (r.tenant.hrisConfig ?? {}) as Record<string, unknown>;
+      // Never return secret values — only whether each is set.
+      const config: Record<string, unknown> = {};
+      for (const f of info?.configFields ?? []) {
+        config[f.key] = f.secret ? (cfg[f.key] ? '••••••' : '') : (cfg[f.key] ?? '');
+      }
+      const adapter = await registry.forTenant(r.tenant.id);
+      return sendJson(res, 200, { provider, configured: adapter !== null, config });
+    }
+    if (p === '/api/admin/hris' && method === 'POST') {
+      const r = resolveAgent(req, url);
+      requireSupervisor(r);
+      const body = await readJson<{ provider?: string; config?: Record<string, unknown> }>(req);
+      const provider = body.provider ?? 'none';
+      const info = CONNECTORS[provider];
+      if (!info) return sendJson(res, 400, { error: `unknown connector '${provider}'` });
+      // Merge: keep existing values for secret fields the admin left blank.
+      const existing = (r.tenant.hrisConfig ?? {}) as Record<string, unknown>;
+      const incoming = body.config ?? {};
+      const next: Record<string, unknown> = { ...existing };
+      for (const f of info.configFields) {
+        const v = incoming[f.key];
+        if (v === undefined) continue;
+        if (f.secret && (v === '' || v === '••••••')) continue; // blank/masked → keep existing
+        next[f.key] = v;
+      }
+      db.setTenantHris(r.tenant.id, provider === 'none' ? null : provider, info.configFields.length ? next : {});
+      registry.invalidate(r.tenant.id); // rebuild the adapter from fresh config
+      const adapter = await registry.forTenant(r.tenant.id);
+      return sendJson(res, 200, { ok: true, provider, configured: adapter !== null });
     }
 
     // ---- employees "user menu": list, create (local or HRIS-synced), pull, link
