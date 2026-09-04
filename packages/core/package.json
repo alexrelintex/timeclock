@@ -1,0 +1,9 @@
+{
+  "name": "@timeclock/core",
+  "version": "1.0.0",
+  "description": "HRIS-agnostic time-clock domain core",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,20 @@
+services:
+  timeclock:
+    build: .
+    image: timeclock:latest
+    container_name: timeclock
+    ports:
+      - "${PORT:-8787}:8787"
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      # Load the demo tenant on boot (set false/omit for a real deployment):
+      SEED_DEMO: "${SEED_DEMO:-false}"
+      # Secrets — set real values in .env (see .env.example):
+      TIMECLOCK_IDENTITY_SECRET: "${TIMECLOCK_IDENTITY_SECRET:-}"
+      TIMECLOCK_WEBHOOK_SECRET: "${TIMECLOCK_WEBHOOK_SECRET:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped

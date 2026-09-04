@@ -1,0 +1,9 @@
+{
+  "name": "@timeclock/hris",
+  "version": "1.0.0",
+  "description": "HRIS adapter boundary (Paycor + capability-flag interface)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

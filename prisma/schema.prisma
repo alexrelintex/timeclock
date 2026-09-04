@@ -1,0 +1,180 @@
+// Time-Clock data model — append-only event stream, HRIS-agnostic core.
+// System of record for all time data INCLUDING breaks/lunch (which never sync to HRIS).
+// Retention target: >= 4 years (FLSA 29 CFR 516.5/516.6 + CA margin). Never hard-delete.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PunchEventType {
+  IN
+  OUT
+  BREAK_START
+  BREAK_END
+  LUNCH_START
+  LUNCH_END
+}
+
+enum EventSource {
+  WIDGET
+  SUPERVISOR
+  SYSTEM // reconciler, auto-generated
+  IMPORT
+}
+
+enum EventStatus {
+  ACTIVE
+  SUPERSEDED
+  PENDING_APPROVAL
+  REJECTED
+}
+
+enum ExceptionType {
+  ORPHAN_IN // IN with no OUT past max-shift threshold
+  ORPHAN_BREAK // BREAK_START with no BREAK_END past threshold
+  ORPHAN_LUNCH // LUNCH_START with no LUNCH_END past threshold
+  LATE_MEAL // CA: lunch started at/after end of 5th hour
+  SHORT_MEAL // CA: lunch < 30 min
+  MISSED_MEAL // CA: no lunch in a > 5h shift (no waiver)
+  MISSED_REST
+}
+
+enum ExceptionStatus {
+  OPEN
+  PENDING_APPROVAL
+  RESOLVED
+  DISMISSED
+}
+
+enum OutboxStatus {
+  PENDING
+  SUBMITTED // sent to HRIS, awaiting async error-log resolution (two-phase)
+  DELIVERED
+  FAILED
+  NOT_SUPPORTED // provider capability flag excluded this record
+}
+
+model Tenant {
+  id             String   @id @default(uuid())
+  name           String
+  timezone       String   @default("America/New_York") // fallback; agent tz wins
+  // Break/lunch business rules (admin-configurable)
+  breakMinutes   Int      @default(10)
+  lunchMinMinutes Int     @default(30)
+  lunchMaxMinutes Int     @default(60)
+  // Coverage
+  coverageThresholdPct Int @default(70)
+  // CA meal-penalty escalation tiers, minutes before deadline
+  mealAlertTiers Json     @default("[60,30,15]")
+  caMealRulesEnabled Boolean @default(true)
+  hrisProvider   String? // 'paycor' | null
+  hrisConfig     Json? // provider-specific (legalEntityId, dept/activity maps)
+  createdAt      DateTime @default(now())
+
+  agents         Agent[]
+  punchEvents    PunchEvent[]
+  exceptions     ComplianceException[]
+  outbox         HrisOutbox[]
+}
+
+model Agent {
+  id              String  @id @default(uuid())
+  tenantId        String
+  tenant          Tenant  @relation(fields: [tenantId], references: [id])
+  displayName     String
+  department      String  @default("General") // coverage is measured per department
+  timezone        String // IANA; drives HRIS local-time conversion + meal timers
+  isSupervisor    Boolean @default(false)
+  // Identity mapping (host CRM identity -> agent -> HRIS employee)
+  hostUserId      String // asserted by host via signed JWT, verified server-side
+  hrisEmployeeId  String? // e.g. Paycor employee GUID; null until mapped
+  hrisDepartmentId String? // provider-required write fields (Paycor: GUID)
+  hrisActivityTypeId String?
+  mealWaiverOnFile Boolean @default(false) // CA <=6h shift waiver
+  active          Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  punchEvents     PunchEvent[]
+  exceptions      ComplianceException[]
+
+  @@unique([tenantId, hostUserId])
+  @@index([tenantId, hrisEmployeeId])
+  @@index([tenantId, department])
+}
+
+model PunchEvent {
+  id           String         @id @default(uuid())
+  tenantId     String
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  agentId      String
+  agent        Agent          @relation(fields: [agentId], references: [id])
+  eventType    PunchEventType
+  eventTime    DateTime // UTC always; convert to agent-local at HRIS boundary
+  source       EventSource
+  sessionId    String? // widget session; orphan-login forensics
+  status       EventStatus    @default(ACTIVE)
+  // Corrections: new event points at the one it corrects; original -> SUPERSEDED.
+  correctionOfId String?
+  correctionOf   PunchEvent?  @relation("Correction", fields: [correctionOfId], references: [id])
+  corrections    PunchEvent[] @relation("Correction")
+  note         String? // agent attestation / correction reason (<=300 for HRIS pass-through)
+  createdById  String // who wrote it (agent or supervisor)
+  approvedById String? // supervisor, for corrections
+  approvedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  prevHash     String? // optional tamper-evident hash chain
+  selfHash     String?
+
+  outboxEntries HrisOutbox[]
+
+  @@index([tenantId, agentId, eventTime])
+  @@index([tenantId, status])
+}
+
+model ComplianceException {
+  id          String          @id @default(uuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id])
+  agentId     String
+  agent       Agent           @relation(fields: [agentId], references: [id])
+  workDate    DateTime // date bucket in agent-local tz
+  type        ExceptionType
+  status      ExceptionStatus @default(OPEN)
+  detectedAt  DateTime        @default(now())
+  relatedEventIds String[]
+  premiumHourPayable Boolean  @default(false) // CA Labor Code 226.7(c)
+  premiumDelivered   Boolean  @default(false) // pay item posted to HRIS
+  resolution  String?
+  resolvedById String?
+  resolvedAt  DateTime?
+
+  @@index([tenantId, agentId, workDate])
+  @@index([tenantId, status])
+}
+
+// Transactional outbox: core writes events + outbox rows in one tx;
+// a worker drains to the HRIS adapter. Two-phase for async providers.
+model HrisOutbox {
+  id           String       @id @default(uuid())
+  tenantId     String
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  punchEventId String?
+  punchEvent   PunchEvent?  @relation(fields: [punchEventId], references: [id])
+  kind         String // 'PUNCH' | 'PAY_ITEM' | 'MISSED_PUNCH_REQUEST' | 'MISSED_PUNCH_DECISION'
+  payload      Json // canonical form; adapter maps to provider
+  status       OutboxStatus @default(PENDING)
+  trackingId   String? // provider async tracking id (Paycor *ErrorLog polling)
+  attempts     Int          @default(0)
+  lastError    String?
+  submittedAt  DateTime?
+  resolvedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@index([tenantId, status])
+  @@index([trackingId])
+}

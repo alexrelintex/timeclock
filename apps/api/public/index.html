@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Time-Clock — demo</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b0d12; color: #e8ecf3;
+      }
+      .card {
+        max-width: 620px; padding: 40px; margin: 24px;
+        background: #12151c; border: 1px solid #232838; border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.4);
+      }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      p.sub { margin: 0 0 24px; color: #9aa4b8; }
+      a.tile {
+        display: block; text-decoration: none; color: inherit;
+        padding: 18px 20px; margin: 12px 0; border-radius: 12px;
+        border: 1px solid #232838; background: #171b24; transition: .15s;
+      }
+      a.tile:hover { border-color: #3b82f6; background: #1a2030; transform: translateY(-1px); }
+      a.tile b { color: #e8ecf3; }
+      a.tile span { color: #9aa4b8; display: block; font-size: 13px; margin-top: 3px; }
+      code { background:#0b0d12; padding:1px 6px; border-radius:5px; font-size:13px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>⏱ Time-Clock &amp; Compliance Service</h1>
+      <p class="sub">Append-only punch stream · CA meal-period timers · coverage-aware breaks · HRIS outbox</p>
+      <a class="tile" href="/supervisor"><b>Supervisor panel →</b><span>Live roster, coverage %, 5th-hour meal countdowns, exceptions, recommendations (SSE)</span></a>
+      <a class="tile" href="/embed?user=u-marcus"><b>Agent widget: Marcus →</b><span>Approaching a 5th-hour meal deadline — watch the countdown</span></a>
+      <a class="tile" href="/embed?user=u-dana"><b>Agent widget: Dana →</b><span>Meal deadline already breached — premium hour payable</span></a>
+      <a class="tile" href="/embed?user=u-nia"><b>Agent widget: Nia →</b><span>Fresh clock-in — clean slate</span></a>
+      <a class="tile" href="/embed?user=u-owen"><b>Agent widget: Owen →</b><span>Never clocked out — must file a missing clock-out (estimated time + reason) before clocking in</span></a>
+      <p class="sub" style="margin-top:24px">Embed contract: <code>/loader.js</code> · Health: <code>/healthz</code></p>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Supervisor — Time-Clock</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 22px; font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #0b0d12; color: #e8ecf3; }
+      h1 { font-size: 20px; margin: 0; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #8b95a9; margin: 26px 0 10px; }
+      .wrap { max-width: 1100px; margin: 0 auto; }
+      .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+      .top .right { display: flex; align-items: center; gap: 12px; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-top: 14px; }
+      .card { background: #12151c; border: 1px solid #232838; border-radius: 13px; padding: 14px 16px; }
+      .card .k { font-size: 12px; color: #8b95a9; }
+      .card .v { font-size: 26px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+      .depts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 12px; }
+      .deptcard { background: #12151c; border: 1px solid #232838; border-radius: 13px; padding: 14px 16px; }
+      .deptcard.low { border-color: #7f2d2d; background: #1c1215; }
+      .deptcard .name { font-weight: 650; }
+      .deptcard .pct { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; }
+      .deptcard .sub { font-size: 12px; color: #8b95a9; margin-top: 2px; }
+      .bar { height: 6px; border-radius: 4px; background: #232838; margin-top: 10px; overflow: hidden; }
+      .bar > i { display: block; height: 100%; background: #22c55e; }
+      .deptcard.low .bar > i { background: #ef4444; }
+      .live { font-size: 12px; color: #86efac; display: inline-flex; align-items: center; gap: 6px; }
+      .live .d { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; animation: pulse 1.6s infinite; }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+      .lnk { background: #171b24; color: #e8ecf3; border: 1px solid #2a3040; border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; transition: background .12s, border-color .12s, box-shadow .12s; }
+      .lnk:hover { border-color: #3b82f6; }
+      .lnk.active { background: #1d4ed8; border-color: #60a5fa; color: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,.25); }
+      .sync-on { display:inline-flex; align-items:center; gap:5px; color:#86efac; font-weight:600; font-size:12px; }
+      .sync-on::before { content:''; width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.18); }
+      .sync-off { display:inline-flex; align-items:center; gap:5px; color:#94a3b8; font-size:12px; }
+      .sync-off::before { content:''; width:7px; height:7px; border-radius:50%; background:#64748b; }
+      .rowbtn { font: inherit; font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer; border:1px solid #2a3040; background:#1a2030; color:#e8ecf3; }
+      .rowbtn:hover { border-color:#3b82f6; }
+      .hcode { font-size:11px; color:#7c8698; font-variant-numeric: tabular-nums; }
+      table { width: 100%; border-collapse: collapse; background: #12151c; border: 1px solid #232838; border-radius: 13px; overflow: hidden; }
+      th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid #1c2230; }
+      th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #8b95a9; }
+      tr:last-child td { border-bottom: none; }
+      td.num { font-variant-numeric: tabular-nums; }
+      .chip { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: #1a2030; color: #cbd5e1; }
+      .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+      .b-ACTIVE { background: rgba(34,197,94,.15); color: #86efac; }
+      .b-ON_BREAK { background: rgba(245,158,11,.15); color: #fcd34d; }
+      .b-ON_LUNCH { background: rgba(56,189,248,.15); color: #7dd3fc; }
+      .b-CLOCKED_OUT { background: rgba(100,116,139,.15); color: #94a3b8; }
+      .meal { font-weight: 600; font-variant-numeric: tabular-nums; }
+      .m-OK { color: #86efac; } .m-NONE { color: #94a3b8; } .m-ADVISORY { color: #93c5fd; }
+      .m-STRONG { color: #fcd34d; } .m-CRITICAL { color: #fca5a5; } .m-BREACH { color: #f87171; }
+      .ex { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid #1c2230; }
+      .ex:last-child { border-bottom: none; }
+      .ex .t { font-weight: 600; } .ex .meta { font-size: 12px; color: #93a0b4; margin-top: 2px; }
+      .tag { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: #331717; color: #fca5a5; margin-left: 8px; }
+      .tag.prem { background: #2a2410; color: #fde68a; }
+      .tag.orphan { background: #2a1c33; color: #d8b4fe; }
+      button.act { font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer; border: 1px solid #2a3040; background: #1a2030; color: #e8ecf3; }
+      button.act:hover { border-color: #3b82f6; }
+      .rec { display: inline-block; padding: 6px 10px; margin: 4px 6px 0 0; border-radius: 8px; background: #12151c; border: 1px solid #232838; font-size: 12px; }
+      .rec.meal { border-color: #6b5a17; color: #fde68a; }
+      .rec.cov { border-color: #7f2d2d; color: #fca5a5; }
+      .muted { color: #8b95a9; }
+      .empty { padding: 16px; color: #8b95a9; background: #12151c; border: 1px solid #232838; border-radius: 13px; }
+      .outbox span { display:inline-block; margin-right: 14px; }
+      .hidden { display: none; }
+      .panel { background: #12151c; border: 1px solid #232838; border-radius: 13px; padding: 16px; }
+      .panel .filters { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+      .panel input[type=date], .panel select { background: #171b24; color: #e8ecf3; border: 1px solid #2a3040; border-radius: 8px; padding: 6px 8px; font: inherit; }
+      .fcsum { background: #101a2b; border: 1px solid #2a3a55; border-left: 3px solid #3b82f6; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px; color: #d6e2f5; }
+      .al { display: grid; grid-template-columns: auto auto 1fr; gap: 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #161b26; font-size: 13px; }
+      .al:last-child { border-bottom: none; }
+      .sev { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; }
+      .sev-CRITICAL { background: #3a0f14; color: #fca5a5; }
+      .sev-WARN { background: #2a2410; color: #fde68a; }
+      .sev-INFO { background: #12251b; color: #86efac; }
+      .al .kind { font-size: 11px; color: #8b95a9; font-variant: small-caps; }
+      .fcbasis { font-size: 10px; color: #7c8698; margin-left: 6px; }
+      .sublabel { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+      table.sched { width: 100%; }
+      table.sched th, table.sched td { padding: 7px 10px; }
+      table.sched input[type=time], table.sched input[type=number] { background: #171b24; color: #e8ecf3; border: 1px solid #2a3040; border-radius: 6px; padding: 5px 6px; font: inherit; width: 100%; }
+      table.sched input:disabled { opacity: .3; }
+      table.sched td.off { opacity: .5; }
+      .wk { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+      .wkday { background: #0e1118; border: 1px solid #1e2430; border-radius: 10px; padding: 10px; font-size: 12px; position: relative; }
+      .wkday.exc { border-color: #3b82f6; }
+      .wkday.exc::after { content: '▲'; position: absolute; top: 6px; right: 8px; color: #3b82f6; font-size: 9px; }
+      .wkday .dow { font-weight: 650; }
+      .wkday .dt { color: #8b95a9; }
+      .wkday .kd { margin-top: 6px; font-weight: 600; }
+      .wkday .hrs { color: #93a0b4; font-variant-numeric: tabular-nums; }
+      .wkday .acts { margin-top: 8px; display: flex; gap: 6px; }
+      .wkday .acts button { font: inherit; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; border: 1px solid #2a3040; background: #1a2030; color: #e8ecf3; }
+      .wkeditor { margin-top: 14px; background: #0e1118; border: 1px solid #2a3a55; border-radius: 10px; padding: 14px; }
+      .wkeditor .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .wkeditor select, .wkeditor input { background: #171b24; color: #e8ecf3; border: 1px solid #2a3040; border-radius: 6px; padding: 6px 8px; font: inherit; }
+      .wkeditor .err { color: #fca5a5; font-size: 12px; margin-top: 8px; min-height: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <div>
+          <h1>Supervisor · <span id="tname" class="muted">—</span></h1>
+          <div class="muted" id="clock" style="font-size:12px;margin-top:4px">—</div>
+        </div>
+        <div class="right">
+          <label class="muted" style="display:flex;align-items:center;gap:6px">Dept <select id="deptFilter"></select></label>
+          <span class="lnk" id="exportBtn">⬇ Export CSV</span>
+          <span class="lnk" id="empBtn">Employees</span>
+          <span class="lnk" id="schedBtn">Schedule</span>
+          <span class="lnk" id="fcBtn">Forecast</span>
+          <span class="lnk" id="histBtn">View history</span>
+          <span class="live"><span class="d"></span> live · SSE</span>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card"><div class="k">Coverage (overall)</div><div class="v" id="cov">—</div></div>
+        <div class="card"><div class="k">Active / scheduled</div><div class="v" id="act">—</div></div>
+        <div class="card"><div class="k">Open exceptions</div><div class="v" id="exc">—</div></div>
+        <div class="card"><div class="k">Meal at risk</div><div class="v" id="risk">—</div></div>
+      </div>
+
+      <!-- Employees (user menu) -->
+      <div class="panel hidden" id="empPanel" style="margin-top:18px">
+        <div class="filters">
+          <strong>Employees</strong>
+          <button class="lnk" id="empNewBtn">+ Create employee</button>
+          <button class="lnk" id="empPullBtn">⟲ Pull from HRIS</button>
+          <label class="muted" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="empShowArch"> Show archived</label>
+          <span class="muted" id="empMeta"></span>
+        </div>
+        <div class="muted" style="font-size:12px;margin:-4px 0 8px">Deactivate is a soft-delete — punch logs are retained (5&nbsp;yr). After 90&nbsp;days inactive an employee can be archived (hidden); HRIS-synced employees’ punches are archived in the HRIS.</div>
+
+        <div class="wkeditor hidden" id="empForm">
+          <div class="row">
+            <label>Name <input type="text" id="efName" placeholder="Full name" style="min-width:180px"></label>
+            <label>Dept <input type="text" id="efDept" value="Support" style="width:110px"></label>
+            <label>State <input type="text" id="efState" value="CA" style="width:60px" maxlength="2"></label>
+            <label>Timezone <select id="efTz" style="width:210px"></select></label>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="efSuper"> Supervisor</label>
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="efSync"> Sync to HRIS</label>
+            <label id="efHrisWrap" class="hidden">HRIS employee id <input type="text" id="efHris" placeholder="(auto if blank)" style="width:150px"></label>
+            <button class="lnk" id="efSave">Create</button>
+            <button class="lnk" id="efCancel">Cancel</button>
+          </div>
+          <div class="err" id="efErr"></div>
+        </div>
+
+        <table class="sched" style="margin-top:12px"><thead><tr><th>Name</th><th>Dept</th><th>State</th><th>Timezone</th><th>Sync</th><th></th></tr></thead>
+          <tbody id="empBody"></tbody></table>
+      </div>
+
+      <!-- Schedule editor -->
+      <div class="panel hidden" id="schedPanel" style="margin-top:18px">
+        <div class="filters">
+          <strong>Schedule editor</strong>
+          <select id="schedAgent"></select>
+          <label class="muted" style="display:flex;align-items:center;gap:6px">week of <input type="date" id="schedWeek" /></label>
+          <span class="muted" id="schedTz"></span>
+        </div>
+
+        <div class="sublabel">Repeating week <span class="muted">— omit a day (set Off) to make it a day off. Saving replaces the whole week.</span></div>
+        <table class="sched"><thead><tr><th>Day</th><th>Works</th><th>Start</th><th>End</th><th>Lunch</th><th>Lunch min</th></tr></thead>
+          <tbody id="patternBody"></tbody></table>
+        <div style="margin-top:10px"><button class="lnk" id="savePattern">Save repeating week</button> <span class="muted" id="patternMsg"></span></div>
+
+        <div class="sublabel" style="margin-top:18px">This week (resolved) <span class="muted">— exception &gt; pattern. Override one date or clear it back to the pattern.</span></div>
+        <div id="weekGrid"></div>
+      </div>
+
+      <!-- Forecast (schedule-driven: coverage, overtime, meal-deadline, adherence) -->
+      <div class="panel hidden" id="fcPanel" style="margin-top:18px">
+        <div class="filters">
+          <strong>AI forecast &amp; alerts</strong>
+          <input type="date" id="fcDate" />
+          <button class="lnk" id="fcRun">Recheck coverage &amp; overtime</button>
+          <span class="muted" id="fcMeta"></span>
+        </div>
+        <div id="fcSummary" class="fcsum">—</div>
+        <div id="fcAlerts"></div>
+      </div>
+
+      <h2>Coverage by department</h2>
+      <div class="depts" id="depts"></div>
+
+      <!-- History -->
+      <div class="panel hidden" id="histPanel" style="margin-top:18px">
+        <div class="filters">
+          <strong>History</strong>
+          <input type="date" id="histDate" />
+          <select id="histDept"><option value="">All departments</option></select>
+          <span class="muted" id="histCount"></span>
+        </div>
+        <div id="histList"><div class="muted">—</div></div>
+      </div>
+
+      <h2>Roster</h2>
+      <table>
+        <thead><tr><th>Agent</th><th>Dept</th><th>Status</th><th>Worked</th><th>Break</th><th>Lunch</th><th>Meal deadline</th></tr></thead>
+        <tbody id="roster"></tbody>
+      </table>
+
+      <h2>Open compliance exceptions</h2>
+      <div id="exceptions"></div>
+
+      <h2>Break / lunch recommendations <span class="muted" style="text-transform:none;letter-spacing:0">— advisory only; no hard constraints. Flags show trade-offs.</span></h2>
+      <div id="recs"></div>
+
+      <h2>HRIS outbox</h2>
+      <div class="outbox card" id="outbox"><span class="muted">no rows</span></div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const user = params.get('user') || 'u-sam';
+      const tenant = params.get('tenant') || 'demo';
+      const q = `?user=${encodeURIComponent(user)}&tenant=${encodeURIComponent(tenant)}`;
+      const $ = (id) => document.getElementById(id);
+      const _last = {};
+      const setHTML = (id, html) => { if (_last[id] !== html) { _last[id] = html; $(id).innerHTML = html; } };
+      // --- world timezones (all IANA zones) with live UTC offsets ---
+      function worldTimezones() {
+        try { return Intl.supportedValuesOf('timeZone'); }
+        catch { return ['UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','America/Sao_Paulo','Europe/London','Europe/Paris','Europe/Berlin','Europe/Moscow','Africa/Johannesburg','Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Australia/Sydney','Pacific/Auckland']; }
+      }
+      function tzShort(tz) { try { const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(new Date()); return (p.find(x=>x.type==='timeZoneName')||{}).value || ''; } catch { return ''; } }
+      // Local calendar date (browser zone), NOT the UTC date — near midnight they differ.
+      const todayLocal = () => { const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+
+      // --- department filter (scoped to what this supervisor manages) + CSV export ---
+      let deptFilter = '';
+      let _deptOpts = '';
+      function syncDeptFilter(list) {
+        const opts = '<option value="">All departments</option>' + list.map(d => `<option value="${d}">${d}</option>`).join('');
+        if (opts === _deptOpts) return;
+        _deptOpts = opts;
+        const sel = document.getElementById('deptFilter'); const cur = sel.value;
+        sel.innerHTML = opts; sel.value = list.includes(cur) ? cur : ''; deptFilter = sel.value;
+      }
+      document.getElementById('deptFilter').addEventListener('change', () => {
+        deptFilter = document.getElementById('deptFilter').value;
+        if (snap) render();
+      });
+      document.getElementById('exportBtn').addEventListener('click', async () => {
+        const params = new URLSearchParams(q); // user/tenant (q carries the default demo user)
+        if (deptFilter) params.set('department', deptFilter);
+        try {
+          const res = await fetch('/api/supervisor/export/punches?' + params.toString());
+          if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'export failed'); return; }
+          const blob = await res.blob();
+          const m = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = m ? m[1] : 'punches.csv';
+          document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+        } catch { alert('export failed'); }
+      });
+      let _tzCache = null;
+      function tzOptionsHTML(selected) {
+        if (!_tzCache) _tzCache = worldTimezones().map(tz => ({ tz, off: tzShort(tz) }));
+        return _tzCache.map(o => `<option value="${o.tz}" ${o.tz===selected?'selected':''}>${o.tz} (${o.off})</option>`).join('');
+      }
+
+      let snap = null, recvAt = 0;
+      const fmt = (ms) => { const s=Math.floor(Math.abs(ms)/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return (ms<0?'-':'')+h+':'+String(m).padStart(2,'0'); };
+      const fmtMS = (ms) => { const neg=ms<0; const s=Math.floor(Math.abs(ms)/1000),m=Math.floor(s/60); return (neg?'-':'')+m+':'+String(s%60).padStart(2,'0'); };
+      const title = (s) => s.replace('_',' ').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+      const localTime = (iso) => new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+      function render() {
+        if (!snap) return;
+        const drift = Date.now() - recvAt;
+        $('tname').textContent = snap.tenantId;
+        const stz = snap.serverTimezone;
+        const serverNow = new Date(Date.parse(snap.now) + drift).toLocaleTimeString('en-US', { timeZone: stz, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        $('clock').textContent = `server time ${serverNow} · ${stz} (${tzShort(stz)}) · coverage floor ${snap.thresholdPct}%`;
+
+        // Populate the department filter from the supervisor's visible departments.
+        syncDeptFilter(snap.visibleDepartments || []);
+        const df = deptFilter;
+        const fRoster = df ? snap.roster.filter(r => r.department === df) : snap.roster;
+        const fCoverage = df ? snap.coverage.filter(c => c.department === df) : snap.coverage;
+        const fExceptions = df ? snap.exceptions.filter(e => e.department === df) : snap.exceptions;
+        const fRecs = df ? snap.recommendations.filter(r => r.department === df) : snap.recommendations;
+        const active = fRoster.filter(r => r.status === 'ACTIVE').length;
+        $('cov').textContent = (fRoster.length ? Math.round(active / fRoster.length * 100) : 100) + '%';
+        $('act').textContent = active + ' / ' + fRoster.length;
+        $('exc').textContent = fExceptions.length;
+
+        setHTML('depts', fCoverage.map((d) =>
+          `<div class="deptcard ${d.belowThreshold?'low':''}">
+            <div class="name">${d.department}</div>
+            <div class="pct">${d.activePct}%</div>
+            <div class="sub">${d.active} active / ${d.scheduled} scheduled${d.belowThreshold?' · below floor':''}</div>
+            <div class="bar"><i style="width:${Math.min(100,d.activePct)}%"></i></div>
+          </div>`).join(''));
+
+        const running = (r) => r.status !== 'CLOCKED_OUT';
+        let risk = 0;
+        const rows = fRoster.map((r) => {
+          const wDrift = running(r) ? drift : 0;
+          let meal = '<span class="muted">—</span>';
+          if (r.meal) {
+            const m = r.meal, rem = m.msRemaining - drift; let cls=m.level, label;
+            if (m.satisfied) { cls='OK'; label='satisfied'; }
+            else if (m.premiumHourPayable || m.level==='BREACH') { cls='BREACH'; label='BREACH · premium'; risk++; }
+            else if (m.level==='NONE') { cls='NONE'; label='open'; }
+            else { label = fmtMS(rem)+' left'; if (m.level==='STRONG'||m.level==='CRITICAL') risk++; }
+            meal = `<span class="meal m-${cls}">${label}</span>`;
+          }
+          const orphan = r.clockoutCorrection ? ' <span class="tag orphan">orphan IN</span>' : '';
+          return `<tr>
+            <td>${r.displayName}${orphan}</td>
+            <td><span class="chip">${r.department}</span> <span class="chip" title="${r.jurisdiction}">${r.locationState}</span></td>
+            <td><span class="badge b-${r.status}">${title(r.status)}</span></td>
+            <td class="num">${r.shiftStart ? fmt(r.workedMs + wDrift) : '—'}</td>
+            <td class="num">${fmt(r.breakMs + (r.status==='ON_BREAK'?drift:0))}</td>
+            <td class="num">${fmt(r.lunchMs + (r.status==='ON_LUNCH'?drift:0))}</td>
+            <td>${meal}</td>
+          </tr>`;
+        }).join('');
+        setHTML('roster', rows);
+        $('risk').textContent = risk;
+
+        const exHtml = !fExceptions.length
+          ? '<div class="empty">None open — all clear.</div>'
+          : '<div class="card" style="padding:0">' + fExceptions.map((e) => {
+            const tagCls = e.type.includes('ORPHAN') ? 'orphan' : (e.premiumHourPayable ? 'prem' : '');
+            const extra = e.premiumHourPayable ? ' · premium hr' : '';
+            return `<div class="ex">
+              <div><span class="t">${e.agentName}</span> <span class="chip">${e.department}</span>
+                <span class="tag ${tagCls}">${e.type}${extra}</span>
+                ${e.resolution?`<div class="meta">${e.resolution}</div>`:''}
+              </div>
+              <button class="act" data-ex="${e.id}">Resolve</button>
+            </div>`; }).join('') + '</div>';
+        setHTML('exceptions', exHtml);
+
+        const recHtml = !fRecs.length
+          ? '<div class="empty">No pending break/lunch placements.</div>'
+          : fRecs.map((r) => {
+            const t = new Date(r.slotStart).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+            const cls = r.mealAtRisk ? 'meal' : r.coverageAtRisk ? 'cov' : '';
+            const flag = r.mealAtRisk ? ' · ⚠ past meal window' : r.coverageAtRisk ? ' · ⚠ below coverage floor' : '';
+            return `<span class="rec ${cls}">${r.agentName} <span class="chip">${r.department}</span> · ${r.kind} @ ${t} · cov ${Math.round(r.coverageAfterPct)}%${flag}</span>`;
+          }).join('');
+        setHTML('recs', recHtml);
+
+        const ob = Object.entries(snap.outbox);
+        setHTML('outbox', ob.length ? ob.map(([k,v]) => `<span><b>${v}</b> ${k}</span>`).join('')
+          : '<span class="muted">no rows yet — only HRIS-synced employees’ IN/OUT punches sync; local-only employees stay internal</span>');
+      }
+
+      $('exceptions').addEventListener('click', async (e) => {
+        const b = e.target.closest('button[data-ex]'); if (!b) return;
+        await fetch(`/api/exceptions/${b.dataset.ex}/resolve${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ resolution: 'reviewed by supervisor' }) });
+      });
+
+      // Forecast (AI): schedule-driven coverage / overtime / meal / adherence
+      let fcOpen = false;
+      $('fcBtn').addEventListener('click', () => {
+        fcOpen = !fcOpen;
+        $('fcPanel').classList.toggle('hidden', !fcOpen);
+        $('fcBtn').classList.toggle('active', fcOpen);
+        if (fcOpen) { if (!$('fcDate').value) $('fcDate').value = todayLocal(); loadForecast(false); }
+      });
+      $('fcRun').addEventListener('click', () => loadForecast(true));
+      $('fcDate').addEventListener('change', () => loadForecast(true));
+      function renderForecast(f) {
+        const by = f.summaryBy === 'claude' ? '✨ Claude' : 'template';
+        $('fcMeta').textContent = `${f.headcount.scheduled} scheduled · ${f.headcount.onDuty} on duty · ${f.headcount.absent} absent · summary: ${by}`;
+        $('fcSummary').textContent = f.summary;
+        if (!f.alerts.length) { $('fcAlerts').innerHTML = '<div class="muted">No alerts for this date.</div>'; return; }
+        $('fcAlerts').innerHTML = f.alerts.map((a) => {
+          const basis = a.detail && a.detail.basis ? `<span class="fcbasis">${a.detail.basis}</span>` : '';
+          return `<div class="al"><span class="sev sev-${a.severity}">${a.severity}</span><span class="kind">${a.kind.replace(/_/g,' ')}</span><span>${a.message}${basis}</span></div>`;
+        }).join('');
+      }
+      async function loadForecast(recompute) {
+        const date = $('fcDate').value;
+        $('fcSummary').textContent = 'Computing…';
+        const res = recompute
+          ? await fetch('/api/supervisor/forecast' + q, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date }) })
+          : await fetch(`/api/supervisor/forecast${q}`);
+        renderForecast(await res.json());
+      }
+
+      // Employees (user menu): create local, pull from HRIS, link/unlink sync
+      let empOpen = false, empData = null;
+      $('empBtn').addEventListener('click', () => {
+        empOpen = !empOpen;
+        $('empPanel').classList.toggle('hidden', !empOpen);
+        $('empBtn').classList.toggle('active', empOpen);
+        if (empOpen) {
+          if (!$('efTz').options.length) $('efTz').innerHTML = tzOptionsHTML(Intl.DateTimeFormat().resolvedOptions().timeZone);
+          loadEmployees();
+        }
+      });
+      $('empShowArch').addEventListener('change', loadEmployees);
+      $('efSync').addEventListener('change', () => $('efHrisWrap').classList.toggle('hidden', !$('efSync').checked));
+      $('empNewBtn').addEventListener('click', () => $('empForm').classList.toggle('hidden'));
+      $('efCancel').addEventListener('click', () => { $('empForm').classList.add('hidden'); $('efErr').textContent=''; });
+
+      async function loadEmployees() {
+        const showArch = $('empShowArch').checked;
+        empData = await (await fetch(`/api/supervisor/employees${q}${showArch?'&includeArchived=1':''}`)).json();
+        const canPull = !!empData.hrisProvider;
+        $('empPullBtn').classList.toggle('hidden', !canPull);
+        const synced = empData.employees.filter(e=>e.synced).length;
+        $('empMeta').textContent = `${empData.employees.length} shown · ${synced} HRIS-synced · ${empData.employees.length-synced} local-only · ${empData.archivedCount} archived` + (canPull?` · HRIS: ${empData.hrisProvider}`:' · no HRIS');
+        $('empBody').innerHTML = empData.employees.map((e) => {
+          const id = e.agentId;
+          const retention = e.synced ? `<span class="hcode">${e.hrisEmployeeId} · HRIS retention</span>` : '<span class="hcode">5-yr local retention</span>';
+          let actions = `<button class="rowbtn" data-edit="${id}">Edit</button>`;
+          if (e.archived) {
+            actions += ` <button class="rowbtn" data-unarchive="${id}">Unarchive</button> <button class="rowbtn" data-active="${id}" data-to="1">Reactivate</button>`;
+          } else if (!e.active) {
+            actions += ` <button class="rowbtn" data-active="${id}" data-to="1">Reactivate</button>`;
+            actions += e.archiveEligible
+              ? ` <button class="rowbtn" data-archive="${id}">Archive</button>`
+              : ` <span class="hcode">archive in ${e.archiveEligibleInDays}d</span>`;
+          } else {
+            actions += ` <button class="rowbtn" data-emp="${id}" data-sync="${e.synced?'0':'1'}">${e.synced?'Unlink':'Link HRIS'}</button>`;
+            actions += ` <button class="rowbtn" data-active="${id}" data-to="0">Deactivate</button>`;
+          }
+          const tag = e.archived ? ' <span class="chip" style="background:#2a1c33;color:#d8b4fe">archived</span>'
+            : (!e.active ? ' <span class="chip" style="background:#3a1a1a;color:#fca5a5">inactive</span>' : '');
+          return `<tr style="${e.active?'':'opacity:.55'}">
+          <td>${e.displayName}${e.isSupervisor?' <span class="chip">supervisor</span>':''}${tag}</td>
+          <td><span class="chip">${e.department}</span></td>
+          <td><span class="chip">${e.locationState}</span></td>
+          <td class="muted">${e.timezone}</td>
+          <td>${e.synced?`<span class="sync-on">HRIS-synced</span> `:'<span class="sync-off">Local-only</span> '}${retention}</td>
+          <td style="text-align:right;white-space:nowrap">${actions}</td>
+        </tr>
+        <tr class="editrow hidden" data-editrow="${e.agentId}"><td colspan="6">
+          <div class="wkeditor" style="margin-top:0">
+            <div class="row">
+              <label>Name <input type="text" class="ee-name" value="${e.displayName.replace(/"/g,'&quot;')}" style="min-width:170px"></label>
+              <label>Dept <input type="text" class="ee-dept" value="${e.department}" style="width:110px"></label>
+              <label>State <input type="text" class="ee-state" value="${e.locationState}" style="width:56px" maxlength="2"></label>
+              <label>Timezone <select class="ee-tz" style="width:210px">${tzOptionsHTML(e.timezone)}</select></label>
+              <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" class="ee-super" ${e.isSupervisor?'checked':''}> Supervisor</label>
+              <button class="rowbtn ee-save" data-save="${e.agentId}">Save</button>
+              <button class="rowbtn ee-cancel" data-cancel="${e.agentId}">Cancel</button>
+            </div>
+            <div class="err ee-err"></div>
+          </div>
+        </td></tr>`;
+        }).join('');
+      }
+
+      $('efSave').addEventListener('click', async () => {
+        $('efErr').textContent='';
+        const body = {
+          displayName: $('efName').value.trim(),
+          department: $('efDept').value.trim(),
+          locationState: $('efState').value.trim(),
+          timezone: $('efTz').value.trim(),
+          isSupervisor: $('efSuper').checked,
+          syncToHris: $('efSync').checked,
+          hrisEmployeeId: $('efHris').value.trim() || undefined,
+        };
+        if (!body.displayName) { $('efErr').textContent='Name is required.'; return; }
+        const res = await fetch('/api/supervisor/employees' + q, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const d = await res.json();
+        if (!res.ok) { $('efErr').textContent = d.error||'error'; return; }
+        $('efName').value=''; $('efHris').value=''; $('efSync').checked=false; $('efHrisWrap').classList.add('hidden');
+        $('empForm').classList.add('hidden');
+        loadEmployees();
+      });
+
+      $('empPullBtn').addEventListener('click', async () => {
+        $('empPullBtn').textContent = 'Pulling…';
+        const res = await fetch('/api/supervisor/employees/pull-hris' + q, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+        const d = await res.json();
+        $('empPullBtn').textContent = '⟲ Pull from HRIS';
+        if (!res.ok) { $('empMeta').textContent = d.error; return; }
+        await loadEmployees();
+        $('empMeta').textContent = `Pulled from ${d.provider}: ${d.created} new, ${d.skipped} already linked. ` + $('empMeta').textContent;
+      });
+
+      $('empBody').addEventListener('click', async (e) => {
+        const link = e.target.closest('button[data-emp]');
+        if (link) {
+          await fetch(`/api/supervisor/employees/${link.dataset.emp}/hris${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sync: link.dataset.sync==='1' }) });
+          return loadEmployees();
+        }
+        const act = e.target.closest('button[data-active]');
+        if (act) {
+          const r = await fetch(`/api/supervisor/employees/${act.dataset.active}/active${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ active: act.dataset.to==='1' }) });
+          if (!r.ok) { const d = await r.json(); $('empMeta').textContent = d.error || 'error'; return; }
+          return loadEmployees();
+        }
+        const arch = e.target.closest('button[data-archive]');
+        if (arch) {
+          const r = await fetch(`/api/supervisor/employees/${arch.dataset.archive}/archive${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+          if (!r.ok) { const d = await r.json(); $('empMeta').textContent = d.error || 'error'; return; }
+          return loadEmployees();
+        }
+        const unarch = e.target.closest('button[data-unarchive]');
+        if (unarch) {
+          await fetch(`/api/supervisor/employees/${unarch.dataset.unarchive}/unarchive${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+          return loadEmployees();
+        }
+        const ed = e.target.closest('button[data-edit]');
+        if (ed) { const row = document.querySelector(`tr[data-editrow="${ed.dataset.edit}"]`); row.classList.toggle('hidden'); return; }
+        const cancel = e.target.closest('button[data-cancel]');
+        if (cancel) { document.querySelector(`tr[data-editrow="${cancel.dataset.cancel}"]`).classList.add('hidden'); return; }
+        const save = e.target.closest('button[data-save]');
+        if (save) {
+          const row = document.querySelector(`tr[data-editrow="${save.dataset.save}"]`);
+          const g = (cls) => row.querySelector('.'+cls);
+          const body = {
+            displayName: g('ee-name').value.trim(),
+            department: g('ee-dept').value.trim(),
+            locationState: g('ee-state').value.trim(),
+            timezone: g('ee-tz').value.trim(),
+            isSupervisor: g('ee-super').checked,
+          };
+          if (!body.displayName) { row.querySelector('.ee-err').textContent = 'Name required.'; return; }
+          const r = await fetch(`/api/supervisor/employees/${save.dataset.save}${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+          if (!r.ok) { const d = await r.json(); row.querySelector('.ee-err').textContent = d.error || 'error'; return; }
+          loadEmployees();
+        }
+      });
+
+      // Schedule editor
+      const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const ABSENCE_KINDS = ['OFF','HOLIDAY','VACATION','PTO','SICK','LEAVE'];
+      let schedOpen = false, schedData = null, schedAgentId = null;
+      const inTz = (iso, tz) => iso ? new Date(iso).toLocaleTimeString('en-US',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}) : '';
+      const addDays = (d, n) => { const t=new Date(d+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+n); return t.toISOString().slice(0,10); };
+      const weekdayOf = (d) => new Date(d+'T00:00:00Z').getUTCDay();
+
+      $('schedBtn').addEventListener('click', () => {
+        schedOpen = !schedOpen;
+        $('schedPanel').classList.toggle('hidden', !schedOpen);
+        $('schedBtn').classList.toggle('active', schedOpen);
+        if (schedOpen) { if (!$('schedWeek').value) $('schedWeek').value = todayLocal(); loadSchedule(); }
+      });
+      $('schedWeek').addEventListener('change', loadSchedule);
+      $('schedAgent').addEventListener('change', () => { schedAgentId = $('schedAgent').value; renderPattern(); renderWeek(); });
+
+      async function loadSchedule() {
+        const from = $('schedWeek').value, to = addDays(from, 6);
+        const res = await fetch(`/api/supervisor/schedule${q}&from=${from}&to=${to}`);
+        schedData = await res.json();
+        const sel = $('schedAgent');
+        if (sel.options.length !== schedData.agents.length) {
+          sel.innerHTML = schedData.agents.map(a => `<option value="${a.agentId}">${a.displayName} · ${a.department}/${a.locationState}</option>`).join('');
+        }
+        schedAgentId = sel.value || (schedData.agents[0] && schedData.agents[0].agentId);
+        sel.value = schedAgentId;
+        const ag = schedData.agents.find(a => a.agentId === schedAgentId);
+        $('schedTz').textContent = ag ? `times shown in ${ag.timezone}` : '';
+        renderPattern(); renderWeek();
+      }
+
+      function renderPattern() {
+        const rows = (schedData.patterns[schedAgentId] || []);
+        const byDow = {}; rows.forEach(r => byDow[r.weekday] = r);
+        $('patternBody').innerHTML = DOW.map((name, wd) => {
+          const r = byDow[wd], works = !!r;
+          return `<tr data-wd="${wd}">
+            <td>${name}</td>
+            <td><input type="checkbox" class="pw" ${works?'checked':''}></td>
+            <td><input type="time" class="ps" value="${r?r.startTime||'':'09:00'}" ${works?'':'disabled'}></td>
+            <td><input type="time" class="pe" value="${r?r.endTime||'':'17:00'}" ${works?'':'disabled'}></td>
+            <td><input type="time" class="pl" value="${r&&r.lunchTime?r.lunchTime:''}" ${works?'':'disabled'}></td>
+            <td><input type="number" class="pm" min="0" max="240" value="${r&&r.lunchMinutes!=null?r.lunchMinutes:30}" ${works?'':'disabled'}></td>
+          </tr>`;
+        }).join('');
+        $('patternBody').querySelectorAll('.pw').forEach(cb => cb.addEventListener('change', (e) => {
+          const tr = e.target.closest('tr'); const on = e.target.checked;
+          tr.querySelectorAll('.ps,.pe,.pl,.pm').forEach(i => i.disabled = !on);
+        }));
+      }
+
+      $('savePattern').addEventListener('click', async () => {
+        const days = [];
+        for (const tr of $('patternBody').querySelectorAll('tr')) {
+          if (!tr.querySelector('.pw').checked) continue;
+          const wd = Number(tr.dataset.wd);
+          const st = tr.querySelector('.ps').value, et = tr.querySelector('.pe').value;
+          const lt = tr.querySelector('.pl').value, lm = Number(tr.querySelector('.pm').value);
+          if (!st || !et) { $('patternMsg').textContent = `${DOW[wd]}: start & end required`; return; }
+          days.push({ weekday: wd, kind: 'WORK', startTime: st, endTime: et, lunchTime: lt||null, lunchMinutes: lm });
+        }
+        const res = await fetch(`/api/supervisor/schedule/pattern${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ agentId: schedAgentId, days }) });
+        const d = await res.json();
+        $('patternMsg').textContent = res.ok ? `Saved ${days.length} working day(s).` : (d.error||'error');
+        if (res.ok) await loadSchedule();
+      });
+
+      function renderWeek() {
+        const from = $('schedWeek').value;
+        const ag = schedData.agents.find(a => a.agentId === schedAgentId);
+        const tz = ag ? ag.timezone : 'UTC';
+        const days = schedData.days.filter(x => x.agentId === schedAgentId);
+        const byDate = {}; days.forEach(x => byDate[x.date] = x.planned);
+        const cards = Array.from({length:7}, (_,i) => {
+          const dt = addDays(from, i), pl = byDate[dt] || {kind:'OFF',source:'UNSCHEDULED'};
+          const exc = pl.source === 'EXCEPTION';
+          const working = pl.startUtc && pl.endUtc;
+          const hrs = working ? `${inTz(pl.startUtc,tz)}–${inTz(pl.endUtc,tz)}${pl.lunchUtc?` · lunch ${inTz(pl.lunchUtc,tz)}`:''}` : (pl.source==='UNSCHEDULED'?'not scheduled':'—');
+          return `<div class="wkday ${exc?'exc':''}">
+            <div class="dow">${DOW[weekdayOf(dt)].slice(0,3)}</div><div class="dt">${dt.slice(5)}</div>
+            <div class="kd">${pl.kind}</div><div class="hrs">${hrs}</div>
+            <div class="acts"><button data-ov="${dt}">Override</button>${exc?`<button data-clr="${dt}">Clear</button>`:''}</div>
+          </div>`;
+        }).join('');
+        $('weekGrid').innerHTML = `<div class="wk">${cards}</div><div id="dayEditor"></div>`;
+        $('weekGrid').querySelectorAll('[data-ov]').forEach(b => b.addEventListener('click', () => openDayEditor(b.dataset.ov)));
+        $('weekGrid').querySelectorAll('[data-clr]').forEach(b => b.addEventListener('click', () => clearDay(b.dataset.clr)));
+      }
+
+      function openDayEditor(date) {
+        const ag = schedData.agents.find(a => a.agentId === schedAgentId);
+        const pl = (schedData.days.find(x => x.agentId===schedAgentId && x.date===date)||{}).planned || {};
+        const working = ['WORK','TRAINING'].includes(pl.kind);
+        const kinds = ['WORK','TRAINING',...ABSENCE_KINDS];
+        $('dayEditor').innerHTML = `<div class="wkeditor">
+          <div class="row">
+            <strong>${date} (${DOW[weekdayOf(date)]})</strong>
+            <select id="deKind">${kinds.map(k=>`<option ${k===pl.kind?'selected':''}>${k}</option>`).join('')}</select>
+            <label>Start <input type="time" id="deStart" value="${working?inTz(pl.startUtc,ag.timezone):'09:00'}"></label>
+            <label>End <input type="time" id="deEnd" value="${working?inTz(pl.endUtc,ag.timezone):'17:00'}"></label>
+            <label>Lunch <input type="time" id="deLunch" value="${working&&pl.lunchUtc?inTz(pl.lunchUtc,ag.timezone):''}"></label>
+            <label>Lunch min <input type="number" id="deLm" min="0" max="240" value="${pl.lunchMinutes!=null?pl.lunchMinutes:30}" style="width:70px"></label>
+            <button class="lnk" id="deSave">Save day</button>
+            <button class="lnk" id="deCancel">Cancel</button>
+          </div>
+          <div class="err" id="deErr"></div>
+        </div>`;
+        const toggle = () => { const w=['WORK','TRAINING'].includes($('deKind').value); ['deStart','deEnd','deLunch','deLm'].forEach(id=>$(id).disabled=!w); };
+        $('deKind').addEventListener('change', toggle); toggle();
+        $('deCancel').addEventListener('click', () => $('dayEditor').innerHTML='');
+        $('deSave').addEventListener('click', async () => {
+          const kind = $('deKind').value, working = ['WORK','TRAINING'].includes(kind);
+          const payload = { agentId: schedAgentId, date, kind };
+          if (working) {
+            if (!$('deStart').value || !$('deEnd').value) { $('deErr').textContent='Start & end required.'; return; }
+            payload.startTime = $('deStart').value; payload.endTime = $('deEnd').value;
+            payload.lunchTime = $('deLunch').value || null; payload.lunchMinutes = Number($('deLm').value);
+          }
+          const res = await fetch(`/api/supervisor/schedule/day${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+          const d = await res.json();
+          if (!res.ok) { $('deErr').textContent = d.error||'error'; return; }
+          await loadSchedule();
+        });
+      }
+      async function clearDay(date) {
+        await fetch(`/api/supervisor/schedule/day/clear${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ agentId: schedAgentId, date }) });
+        await loadSchedule();
+      }
+
+      // History
+      let histOpen = false, deptsLoaded = false;
+      $('histBtn').addEventListener('click', () => {
+        histOpen = !histOpen;
+        $('histPanel').classList.toggle('hidden', !histOpen);
+        $('histBtn').classList.toggle('active', histOpen);
+        if (histOpen) {
+          if (!$('histDate').value) $('histDate').value = todayLocal();
+          if (!deptsLoaded && snap) { $('histDept').innerHTML = '<option value="">All departments</option>' + snap.coverage.map(d=>`<option value="${d.department}">${d.department}</option>`).join(''); deptsLoaded = true; }
+          loadHistory();
+        }
+      });
+      $('histDate').addEventListener('change', loadHistory);
+      $('histDept').addEventListener('change', loadHistory);
+      async function loadHistory() {
+        const date = $('histDate').value, dept = $('histDept').value;
+        const res = await fetch(`/api/supervisor/history${q}&date=${date}${dept?`&department=${encodeURIComponent(dept)}`:''}`);
+        const data = await res.json();
+        $('histCount').textContent = `${data.events.length} event${data.events.length===1?'':'s'}`;
+        if (!data.events.length) { $('histList').innerHTML = '<div class="muted">No punches on this date.</div>'; return; }
+        const stz = data.serverTimezone;
+        $('histList').innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:8px">Times shown in server time · ${stz} (${tzShort(stz)}).</div>` +
+          '<table><thead><tr><th>Server time</th><th>Agent</th><th>Dept</th><th>Event</th><th>Source</th><th>Note</th></tr></thead><tbody>' +
+          data.events.map((e) => `<tr><td class="num">${inTz(e.eventTime, stz)}</td><td>${e.agentName}</td><td><span class="chip">${e.department}</span></td><td>${e.eventType.replace('_',' ')}</td><td class="muted">${e.source}</td><td class="muted">${e.note||''}</td></tr>`).join('') +
+          '</tbody></table>';
+      }
+
+      const es = new EventSource('/api/supervisor/stream' + q);
+      es.addEventListener('snapshot', (e) => { snap = JSON.parse(e.data); recvAt = Date.now(); render(); });
+      es.onerror = () => { $('clock').textContent = 'reconnecting…'; };
+      setInterval(render, 1000);
+    </script>
+  </body>
+</html>

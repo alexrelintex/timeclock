@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.git
+.gitignore
+.env
+*.log
+npm-debug.log*
+.DS_Store
+dist
+HANDOFF.md
+docs/screenshots
+.claude

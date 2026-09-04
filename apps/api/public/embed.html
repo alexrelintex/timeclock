@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Time clock</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 18px;
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b0d12; color: #e8ecf3;
+      }
+      .clock { max-width: 380px; margin: 0 auto; }
+      .head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+      .head .right { display: flex; align-items: center; gap: 8px; }
+      .dept { font-size: 12px; color: #8b95a9; margin-bottom: 12px; }
+      .dept b { color: #cbd5e1; }
+      select, .lnk {
+        background: #171b24; color: #e8ecf3; border: 1px solid #2a3040;
+        border-radius: 8px; padding: 6px 8px; font-size: 13px; cursor: pointer;
+        transition: background .12s, border-color .12s, box-shadow .12s;
+      }
+      .lnk.active { background: #1d4ed8; border-color: #60a5fa; color: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,.25); }
+      .status {
+        border: 1px solid #232838; border-radius: 14px; padding: 18px;
+        background: #12151c; margin-bottom: 14px;
+      }
+      .who { font-size: 13px; color: #9aa4b8; }
+      .pill { display: inline-flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 20px; font-weight: 650; }
+      .dot { width: 11px; height: 11px; border-radius: 50%; background: #64748b; }
+      .s-ACTIVE .dot { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.18); }
+      .s-ON_BREAK .dot { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.18); }
+      .s-ON_LUNCH .dot { background: #38bdf8; box-shadow: 0 0 0 4px rgba(56,189,248,.18); }
+      .s-CLOCKED_OUT .dot { background: #64748b; }
+      .timers { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 16px; }
+      .timers div { background: #0e1118; border: 1px solid #1e2430; border-radius: 10px; padding: 8px 6px; text-align: center; }
+      .timers .k { font-size: 11px; color: #8b95a9; text-transform: uppercase; letter-spacing: .04em; }
+      .timers .v { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 3px; }
+      .meal { margin-top: 14px; padding: 12px 14px; border-radius: 11px; font-size: 14px; display: none; }
+      .meal b { font-variant-numeric: tabular-nums; }
+      .lvl-ADVISORY { background: #1c2432; border: 1px solid #2f435f; display:block; }
+      .lvl-STRONG   { background: #2a2410; border: 1px solid #6b5a17; color: #fde68a; display:block; }
+      .lvl-CRITICAL { background: #331717; border: 1px solid #7f2d2d; color: #fca5a5; display:block; }
+      .lvl-BREACH   { background: #3a0f14; border: 1px solid #b91c1c; color: #fecaca; display:block; }
+      .lvl-OK       { background: #12251b; border: 1px solid #1f5136; color: #86efac; display:block; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      button.pb {
+        font: inherit; font-weight: 600; padding: 14px; border-radius: 11px; cursor: pointer;
+        border: 1px solid #2a3040; background: #1a2030; color: #e8ecf3; transition: .12s;
+      }
+      button.primary { background: #22c55e; border-color: #22c55e; color: #06210f; }
+      button.warn { background: #f59e0b; border-color: #f59e0b; color: #241a03; }
+      button.info { background: #38bdf8; border-color: #38bdf8; color: #04222f; }
+      button.danger { background: #1a2030; border-color: #7f2d2d; color: #fca5a5; }
+      button.pb:disabled { opacity: .32; cursor: not-allowed; }
+      button.pb:not(:disabled):hover { transform: translateY(-1px); }
+      .toast { margin-top: 10px; font-size: 13px; color: #fca5a5; min-height: 18px; }
+      /* orphan clock-out correction */
+      .correct { border: 1px solid #7f2d2d; background: #241016; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+      .correct h3 { margin: 0 0 6px; font-size: 15px; color: #fca5a5; }
+      .correct p { margin: 0 0 12px; font-size: 13px; color: #f6c9c9; }
+      .correct label { display: block; font-size: 12px; color: #cbd5e1; margin: 10px 0 4px; }
+      .correct input { width: 100%; background: #12151c; color: #e8ecf3; border: 1px solid #3a2530; border-radius: 8px; padding: 9px; font: inherit; }
+      .correct .go { margin-top: 14px; width: 100%; background: #ef4444; border-color: #ef4444; color: #fff; font-weight: 650; padding: 12px; border-radius: 10px; cursor: pointer; }
+      .correct .err { color: #fecaca; font-size: 12px; min-height: 16px; margin-top: 8px; }
+      /* history */
+      .panel { border: 1px solid #232838; background: #12151c; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+      .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+      .panel input[type=date] { background: #171b24; color: #e8ecf3; border: 1px solid #2a3040; border-radius: 8px; padding: 6px 8px; font: inherit; }
+      .hist { border-top: 1px solid #1c2230; }
+      .hist .e { display: grid; grid-template-columns: 78px 1fr auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #161b26; font-size: 13px; }
+      .hist .t { color: #9aa4b8; font-variant-numeric: tabular-nums; }
+      .hist .ty { font-weight: 600; }
+      .hist .src { font-size: 11px; color: #8b95a9; }
+      .hist .note { grid-column: 1 / -1; color: #94a3b8; font-size: 12px; }
+      .sched .d { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid #161b26; font-size: 13px; }
+      .sched .d:last-child { border-bottom: none; }
+      .sched .dow { font-weight: 600; } .sched .dow.today { color: #86efac; }
+      .sched .dt { color: #8b95a9; font-size: 11px; }
+      .sched .hrs { font-variant-numeric: tabular-nums; }
+      .sched .off { color: #7c8698; }
+      .sched .kd { font-size: 11px; color: #d8b4fe; margin-left: 6px; }
+      .hidden { display: none; }
+      .muted { color: #8b95a9; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div class="clock">
+      <div class="head">
+        <strong>⏱ Time clock</strong>
+        <div class="right">
+          <span class="lnk" id="schedBtn">Schedule</span>
+          <span class="lnk" id="histBtn">History</span>
+          <select id="switcher" title="Demo: switch agent"></select>
+        </div>
+      </div>
+      <div class="dept" id="dept"></div>
+      <div class="dept" id="localclock" style="margin-top:-8px"></div>
+
+      <!-- Missing clock-out correction (orphan IN) -->
+      <div class="correct hidden" id="correct">
+        <h3>⚠ Missing clock-out</h3>
+        <p id="correctMsg">You didn't clock out from your previous shift. File the estimated clock-out and a reason before clocking in.</p>
+        <label for="estTime">Estimated clock-out time</label>
+        <input type="datetime-local" id="estTime" />
+        <label for="reason">Reason for missing clock-out</label>
+        <input type="text" id="reason" maxlength="280" placeholder="e.g. forgot to punch out; laptop died" />
+        <button class="go" id="fileBtn">File clock-out &amp; continue</button>
+        <div class="err" id="correctErr"></div>
+      </div>
+
+      <!-- My schedule (read-only) -->
+      <div class="panel hidden" id="schedPanel">
+        <div class="row"><strong>My schedule</strong><span class="muted" id="schedTz"></span></div>
+        <div class="sched" id="schedList"><div class="muted">—</div></div>
+      </div>
+
+      <!-- History -->
+      <div class="panel hidden" id="histPanel">
+        <div class="row">
+          <strong>My history</strong>
+          <input type="date" id="histDate" />
+        </div>
+        <div class="hist" id="histList"><div class="muted">—</div></div>
+      </div>
+
+      <div class="status" id="statusCard">
+        <div class="who" id="who">—</div>
+        <div class="pill"><span class="dot"></span><span id="statusText">—</span></div>
+        <div class="timers">
+          <div><div class="k">Worked</div><div class="v" id="tWork">0:00</div></div>
+          <div><div class="k">Break</div><div class="v" id="tBreak">0:00</div></div>
+          <div><div class="k">Lunch</div><div class="v" id="tLunch">0:00</div></div>
+        </div>
+        <div class="meal" id="meal"></div>
+      </div>
+
+      <div class="grid" id="buttons">
+        <button class="pb primary" data-type="IN">Clock in</button>
+        <button class="pb danger" data-type="OUT">Clock out</button>
+        <button class="pb warn" data-type="BREAK_START">Start break</button>
+        <button class="pb warn" data-type="BREAK_END">End break</button>
+        <button class="pb info" data-type="LUNCH_START">Start lunch</button>
+        <button class="pb info" data-type="LUNCH_END">End lunch</button>
+      </div>
+      <div class="toast" id="toast"></div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      let user = params.get('user') || 'u-marcus';
+      const tenant = params.get('tenant') || 'demo';
+      const q = () => `?user=${encodeURIComponent(user)}&tenant=${encodeURIComponent(tenant)}`;
+
+      const $ = (id) => document.getElementById(id);
+      const fmt = (ms) => { const neg=ms<0; ms=Math.abs(ms); const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return (neg?'-':'')+h+':'+String(m).padStart(2,'0'); };
+      const fmtMS = (ms) => { const neg=ms<0; ms=Math.abs(ms); const s=Math.floor(ms/1000),m=Math.floor(s/60); return (neg?'-':'')+m+':'+String(s%60).padStart(2,'0'); };
+      const toLocalInput = (iso) => { const d=new Date(iso); const p=(n)=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+      // Wall-clock times render in the EMPLOYEE's own timezone, not the browser's.
+      const inTz = (iso, tz) => new Date(iso).toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+      const tzOffset = (tz) => { try { const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(new Date()); return (p.find(x=>x.type==='timeZoneName')||{}).value || ''; } catch { return ''; } };
+      const localTime = (iso) => inTz(iso, (view && view.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+      let view = null;
+
+      function render() {
+        if (!view) return;
+        $('who').textContent = view.displayName;
+        $('dept').innerHTML = 'Department: <b>' + view.department + '</b>';
+        if (view.timezone) {
+          const nowLocal = new Date().toLocaleTimeString('en-US', { timeZone: view.timezone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          $('localclock').innerHTML = `Local time <b>${nowLocal}</b> · ${view.timezone} (${tzOffset(view.timezone)})`;
+        }
+        $('statusCard').className = 'status s-' + view.status;
+        $('statusText').textContent = view.status.replace('_',' ').toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
+        const running = view.status==='ACTIVE'||view.status==='ON_BREAK'||view.status==='ON_LUNCH';
+        const drift = running && view.shiftStart ? Date.now() - view._recvAt : 0;
+        $('tWork').textContent = fmt(view.workedMs + (view.shiftStart?drift:0));
+        $('tBreak').textContent = fmt(view.breakMs + (view.status==='ON_BREAK'?drift:0));
+        $('tLunch').textContent = fmt(view.lunchMs + (view.status==='ON_LUNCH'?drift:0));
+
+        // Orphan clock-out gate
+        const corr = view.clockoutCorrection;
+        if (corr) {
+          if ($('correct').classList.contains('hidden')) {
+            $('estTime').value = toLocalInput(corr.suggestedClockout);
+          }
+          $('correct').classList.remove('hidden');
+          const hrs = Math.floor(corr.ageMs/3600000);
+          $('correctMsg').textContent = `Your shift from ${new Date(corr.shiftStart).toLocaleString()} is still open (${hrs}h). File the estimated clock-out and a reason before clocking in.`;
+        } else {
+          $('correct').classList.add('hidden');
+        }
+
+        const mealEl = $('meal');
+        if (!view.meal) { mealEl.className='meal'; mealEl.textContent=''; }
+        else {
+          const m = view.meal, rem = m.msRemaining - drift; let cls, msg;
+          if (m.satisfied) { cls='OK'; msg='✓ Meal period satisfied for today.'; }
+          else if (m.premiumHourPayable || m.level==='BREACH') { cls='BREACH'; msg = m.missedMeal?'⚠ Meal deadline passed — premium hour payable.':m.lateMeal?'⚠ Late meal — premium hour payable.':m.shortMeal?'⚠ Short meal (<30 min) — premium hour payable.':'⚠ Meal deadline breached.'; }
+          else if (m.level==='NONE') { cls='ADVISORY'; msg='Meal window open.'; }
+          else { cls=m.level; msg=`${m.level==='CRITICAL'?'🔴':m.level==='STRONG'?'🟠':'🔵'} Start lunch within <b>${fmtMS(rem)}</b> (CA 5th-hour rule).`; }
+          mealEl.className='meal lvl-'+cls; mealEl.innerHTML=msg;
+        }
+
+        for (const b of document.querySelectorAll('#buttons button')) {
+          // While an orphan correction is pending, block clock-in specifically.
+          const blocked = corr && b.dataset.type==='IN';
+          b.disabled = blocked || !view.allowed.includes(b.dataset.type);
+        }
+      }
+
+      async function punch(type) {
+        $('toast').textContent = '';
+        const res = await fetch('/api/punch'+q(), { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type}) });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.code === 'ORPHAN_CLOCKOUT_REQUIRED' && data.correction) {
+            view.clockoutCorrection = data.correction; render();
+          }
+          $('toast').textContent = data.error || 'error'; return;
+        }
+        view = data.view; view._recvAt = Date.now(); render();
+      }
+
+      $('buttons').addEventListener('click', (e) => { const b=e.target.closest('button'); if (b && !b.disabled) punch(b.dataset.type); });
+
+      $('fileBtn').addEventListener('click', async () => {
+        $('correctErr').textContent = '';
+        const val = $('estTime').value, reason = $('reason').value.trim();
+        if (!val) { $('correctErr').textContent='Enter an estimated clock-out time.'; return; }
+        if (!reason) { $('correctErr').textContent='A reason is required.'; return; }
+        const res = await fetch('/api/clockout-correction'+q(), {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ estimatedClockoutUtc: new Date(val).toISOString(), reason }),
+        });
+        const data = await res.json();
+        if (!res.ok) { $('correctErr').textContent = data.error || 'error'; return; }
+        view = data.view; view._recvAt = Date.now(); $('reason').value=''; render();
+        $('toast').textContent = 'Previous shift closed — you can clock in now.';
+      });
+
+      // History
+      let histOpen = false;
+      $('histBtn').addEventListener('click', () => {
+        histOpen = !histOpen;
+        $('histPanel').classList.toggle('hidden', !histOpen);
+        $('histBtn').classList.toggle('active', histOpen);
+        if (histOpen) {
+          if (!$('histDate').value) {
+            const tz = (view && view.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            $('histDate').value = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+          }
+          loadHistory();
+        }
+      });
+      $('histDate').addEventListener('change', loadHistory);
+      async function loadHistory() {
+        const date = $('histDate').value;
+        const res = await fetch(`/api/history${q()}&date=${date}`);
+        const data = await res.json();
+        const el = $('histList');
+        if (!data.events.length) { el.innerHTML = '<div class="muted">No punches on this date.</div>'; return; }
+        el.innerHTML = data.events.map((e) =>
+          `<div class="e"><span class="t">${localTime(e.eventTime)}</span><span class="ty">${e.eventType.replace('_',' ')}</span><span class="src">${e.source}</span>${e.note?`<div class="note">${e.note}</div>`:''}</div>`
+        ).join('');
+      }
+
+      // My schedule (read-only) — rendered in the employee's own local time
+      const SDOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      let schedOpenFlag = false;
+      $('schedBtn').addEventListener('click', () => {
+        schedOpenFlag = !schedOpenFlag;
+        $('schedPanel').classList.toggle('hidden', !schedOpenFlag);
+        $('schedBtn').classList.toggle('active', schedOpenFlag);
+        if (schedOpenFlag) loadSchedule();
+      });
+      async function loadSchedule() {
+        const tz = (view && view.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const dInTz = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+        const from = dInTz(new Date()), to = dInTz(new Date(Date.now() + 6 * 864e5));
+        $('schedTz').textContent = `times in ${tz}`;
+        const data = await (await fetch(`/api/me/schedule${q()}&from=${from}&to=${to}`)).json();
+        const wd = (d) => new Date(d + 'T00:00:00Z').getUTCDay();
+        const el = $('schedList');
+        if (!data.days || !data.days.length) { el.innerHTML = '<div class="muted">No schedule on file.</div>'; return; }
+        el.innerHTML = data.days.map((x) => {
+          const p = x.planned, working = p.startUtc && p.endUtc, isToday = x.date === from;
+          const hrs = working
+            ? `${inTz(p.startUtc, tz)}–${inTz(p.endUtc, tz)}${p.lunchUtc ? ` · lunch ${inTz(p.lunchUtc, tz)}` : ''}${(p.kind !== 'WORK') ? ` <span class="kd">${p.kind}</span>` : ''}`
+            : (p.source === 'UNSCHEDULED' ? '<span class="off">Off</span>' : `<span class="off">${p.kind}</span>`);
+          return `<div class="d"><div><span class="dow ${isToday ? 'today' : ''}">${SDOW[wd(x.date)]}</span> <span class="dt">${x.date.slice(5)}</span></div><div class="hrs">${hrs}</div></div>`;
+        }).join('');
+      }
+
+      let es;
+      function connect() {
+        if (es) es.close();
+        es = new EventSource('/api/me/stream'+q());
+        es.addEventListener('update', (e) => { const prev = view; view = JSON.parse(e.data); view._recvAt = Date.now(); render(); });
+      }
+
+      async function loadSwitcher() {
+        const res = await fetch('/api/dev/agents?tenant='+encodeURIComponent(tenant));
+        const agents = await res.json();
+        const sel = $('switcher'); sel.innerHTML='';
+        for (const a of agents) { const o=document.createElement('option'); o.value=a.hostUserId; o.textContent=a.displayName+(a.isSupervisor?' ★':''); if (a.hostUserId===user) o.selected=true; sel.appendChild(o); }
+        sel.onchange = () => { user=sel.value; $('correct').classList.add('hidden'); connect(); if (histOpen) loadHistory(); if (schedOpenFlag) setTimeout(loadSchedule, 200); };
+      }
+
+      loadSwitcher(); connect();
+      setInterval(render, 1000);
+    </script>
+  </body>
+</html>

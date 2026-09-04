@@ -1,0 +1,11 @@
+{
+  "name": "@timeclock/api",
+  "version": "1.0.0",
+  "description": "Time-clock API + widget/supervisor UI host",
+  "type": "module",
+  "main": "src/server.ts",
+  "dependencies": {
+    "@timeclock/core": "*",
+    "@timeclock/hris": "*"
+  }
+}
