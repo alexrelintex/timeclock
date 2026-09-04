@@ -278,7 +278,8 @@
       function render() {
         if (!snap) return;
         const drift = Date.now() - recvAt;
-        $('tname').textContent = snap.tenantId;
+        $('tname').textContent = snap.instanceName || snap.tenantId;
+        document.title = `${snap.instanceName || 'Time-Clock'} — Supervisor`;
         const stz = snap.serverTimezone;
         const serverNow = new Date(Date.parse(snap.now) + drift).toLocaleTimeString('en-US', { timeZone: stz, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         $('clock').textContent = `server time ${serverNow} · ${stz} (${tzShort(stz)}) · coverage floor ${snap.thresholdPct}%`;

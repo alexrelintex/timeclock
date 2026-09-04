@@ -22,7 +22,7 @@ export interface SeededAgent {
 export function seedDemo(db: MemoryDb, now: Date = new Date()): { tenant: Tenant; agents: SeededAgent[] } {
   const tenant: Tenant = {
     id: DEMO_TENANT_ID,
-    name: 'Acme Support (demo)',
+    name: process.env.INSTANCE_NAME || 'Acme Support (demo)',
     timezone: 'America/Los_Angeles',
     breakMinutes: 10,
     lunchMinMinutes: 30,

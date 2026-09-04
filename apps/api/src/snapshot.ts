@@ -103,6 +103,7 @@ export interface DepartmentCoverage {
 
 export interface SupervisorSnapshot {
   tenantId: string;
+  instanceName: string; // brandable per-deployment name (INSTANCE_NAME env)
   now: string;
   serverTimezone: string; // the supervisor sees all times in this (server/HQ) zone
   visibleDepartments: string[]; // departments this supervisor may see (for the filter)
@@ -203,6 +204,7 @@ export function buildSupervisorSnapshot(
 
   return {
     tenantId,
+    instanceName: process.env.INSTANCE_NAME || tenant.name,
     now: now.toISOString(),
     serverTimezone: tenant.timezone,
     visibleDepartments: scopedDepts,

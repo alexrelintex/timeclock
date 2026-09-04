@@ -8,6 +8,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8787"
+      # Per-deployment branding (this instance is "Housing Counselors"):
+      INSTANCE_NAME: "${INSTANCE_NAME:-Housing Counselors}"
       # Load the demo tenant on boot (set false/omit for a real deployment):
       SEED_DEMO: "${SEED_DEMO:-false}"
       # Secrets — set real values in .env (see .env.example):
