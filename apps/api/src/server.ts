@@ -180,7 +180,14 @@ function resolveAgent(req: IncomingMessage, url: URL): Resolved {
     if (!tenant) throw new AuthError(401, 'unknown tenant');
     const agent = db.agentByHostUserId(tenant.id, claims.hostUserId);
     if (!agent) throw new AuthError(403, 'no agent mapped for host user');
-    return { agent, tenant };
+    // Host-asserted role (when present in the verified JWT) is authoritative for
+    // this session; otherwise the stored agent role applies. Shallow-copy so the
+    // store is never mutated by a per-request assertion.
+    const effective =
+      claims.role && claims.role !== agent.role
+        ? { ...agent, role: claims.role, isSupervisor: claims.role !== 'user' }
+        : agent;
+    return { agent: effective, tenant };
   }
   if (DEMO) {
     const tenantId = url.searchParams.get('tenant') ?? (req.headers['x-demo-tenant'] as string) ?? 'demo';
@@ -383,11 +390,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (!user) return sendJson(res, 400, { error: 'user required' });
     const agent = db.agentByHostUserId(tenant, user);
     if (!agent) return sendJson(res, 404, { error: 'no such user' });
+    // Mint the way a host backend would, asserting the mapped agent's role.
     const token = mintIdentityToken(
-      { tenantId: tenant, hostUserId: user, displayName: agent.displayName },
+      { tenantId: tenant, hostUserId: user, displayName: agent.displayName, role: agent.role },
       IDENTITY_SECRET,
     );
-    return sendJson(res, 200, { token });
+    return sendJson(res, 200, { token, role: agent.role });
   }
 
   // ---- roster helper for the demo agent-switcher
