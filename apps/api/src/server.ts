@@ -180,12 +180,13 @@ function resolveAgent(req: IncomingMessage, url: URL): Resolved {
     if (!tenant) throw new AuthError(401, 'unknown tenant');
     const agent = db.agentByHostUserId(tenant.id, claims.hostUserId);
     if (!agent) throw new AuthError(403, 'no agent mapped for host user');
-    // Host-asserted role (when present in the verified JWT) is authoritative for
-    // this session; otherwise the stored agent role applies. Shallow-copy so the
-    // store is never mutated by a per-request assertion.
+    // The stored agent role is the CEILING: a host-asserted role can only RESTRICT
+    // (demote), never escalate above what an admin granted in-app. Effective role =
+    // min(jwtRole, recordRole). Shallow-copy so the store is never mutated.
+    const effectiveRole = clampRole(claims.role, agent.role);
     const effective =
-      claims.role && claims.role !== agent.role
-        ? { ...agent, role: claims.role, isSupervisor: claims.role !== 'user' }
+      effectiveRole !== agent.role
+        ? { ...agent, role: effectiveRole, isSupervisor: effectiveRole !== 'user' }
         : agent;
     return { agent: effective, tenant };
   }
@@ -213,6 +214,18 @@ function requireSupervisor(r: Resolved): void {
 /** Admin-only: HRIS connector config, tenant settings, role assignment. */
 function requireAdmin(r: Resolved): void {
   if (r.agent.role !== 'admin') throw new AuthError(403, 'admin only');
+}
+
+const ROLE_RANK: Record<Role, number> = { user: 0, supervisor: 1, admin: 2 };
+const RANK_ROLE: Role[] = ['user', 'supervisor', 'admin'];
+/**
+ * Effective role = min(host-asserted role, stored role). The stored role is the
+ * ceiling: a host token can drop privileges for a session but never grant above
+ * what an admin set in-app. A missing/invalid claim leaves the stored role intact.
+ */
+function clampRole(jwtRole: Role | undefined, recordRole: Role): Role {
+  if (!jwtRole) return recordRole;
+  return RANK_ROLE[Math.min(ROLE_RANK[jwtRole], ROLE_RANK[recordRole])];
 }
 
 /** Departments a supervisor may see. Admins see all (null). */

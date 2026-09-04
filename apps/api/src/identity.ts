@@ -7,11 +7,11 @@
  * forwards it to us; we verify signature + expiry here and resolve it to an
  * Agent via the identity map.
  *
- * The optional `role` claim is the host's authorization assertion. Because we
- * verify the signature (the host owns the signing secret), a present `role` is
- * authoritative for the session; when omitted, the stored agent role applies.
- * Only the three known tiers are accepted — an unknown value is dropped, never
- * escalated.
+ * The optional `role` claim is the host's authorization assertion. Only the three
+ * known tiers are accepted — an unknown value is dropped. The claim can only
+ * RESTRICT: the effective role is clamped to min(claimRole, storedRole) at the
+ * call site, so a host token demotes for a session but never escalates above the
+ * role an admin granted in-app.
  *
  * Demo uses HS256 with a per-tenant shared secret (TIMECLOCK_IDENTITY_SECRET).
  * Production swap: verify RS256/ES256 against the host's JWKS — the call sites
