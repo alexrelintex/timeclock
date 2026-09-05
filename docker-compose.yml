@@ -1,14 +1,18 @@
 services:
   timeclock:
-    build: .
-    image: timeclock:latest
+    # Runs the published image from GHCR (no local build). Bump the pin to deploy a
+    # new release:  TIMECLOCK_VERSION=0.2.0 docker compose pull && docker compose up -d
+    image: ghcr.io/alexrelintex/timeclock:${TIMECLOCK_VERSION:-0.1.0}
+    # v0.1.0 is amd64-only; emulated on arm hosts (Apple Silicon). Remove once the
+    # image is multi-arch (v0.2.0+), or override with DOCKER_PLATFORM.
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: timeclock
     ports:
       - "${PORT:-8787}:8787"
     environment:
-      NODE_ENV: production
+      NODE_ENV: "${NODE_ENV:-production}"
       PORT: "8787"
-      # Per-deployment branding (this instance is "Housing Counselors"):
+      # Per-deployment branding (override per instance, e.g. "CWDR (UAT)"):
       INSTANCE_NAME: "${INSTANCE_NAME:-Housing Counselors}"
       # Load the demo tenant on boot (set false/omit for a real deployment):
       SEED_DEMO: "${SEED_DEMO:-false}"
