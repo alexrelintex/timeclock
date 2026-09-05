@@ -77,6 +77,17 @@ by swapping `MemoryDb` for the Prisma stores; enable Paycor by setting a tenant'
   lookups are case-insensitive either way. Edit an employee's `email` to move
   their identity; a second employee with the same email is refused (`409
   EMAIL_IN_USE`).
+- **Host login and logout drive the widget, never the punch.** The loader's
+  `window.TimeClock.open({ intent: 'clock-in' })` on CRM login and
+  `open({ intent: 'clock-out' })` on CRM logout expand the widget and ask the
+  person for that punch — highlighted button, a one-line prompt while they are
+  still clocked in — and the punch is theirs to make inside TimeClock, so the
+  record stays the employee's own. The widget reports `timeclock:state`
+  (`status`, `allowed`) and `timeclock:punched` (`type`) as DOM events, so a
+  logout flow can wait for the OUT before signing off. Embedded, the widget
+  authenticates every call with the host identity JWT and polls `/api/me`
+  (an `EventSource` cannot carry a bearer); the demo `?user=` path is unchanged
+  when the page is opened directly.
 - **Sync is per-employee**, keyed on `agent.hrisEmployeeId`: set → the employee's
   IN/OUT punches flow through the transactional outbox to the HRIS; `null` → the
   employee lives solely in the timeclock DB and nothing leaves the app. (Breaks and
