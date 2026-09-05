@@ -1,88 +1,84 @@
-# Handoff — Time-Clock (updated 2026-08-27)
+# Handoff — Time-Clock (updated 2026-09-05)
 
-Pick-up notes for the next session. Everything below is about
-`~/Downloads/timeclock` (the in-memory Node/TypeScript build).
+Pick-up notes for the next session. Project: `~/Downloads/timeclock` — its own git
+repo (`git@github.com:alexrelintex/timeclock.git`, branch `main`). Node/TypeScript,
+npm workspaces (`packages/core`, `packages/hris`, `apps/api`).
 
-## Where it stands
+## ▶ Current work (active): Headless CRM database schema → connect CRM ↔ Timeclock
 
-Fully working demo, all green: `npx tsc --noEmit` clean, `npm test` +
-`tsx tests/scheduling.test.ts` pass, no server errors.
+The next PR designs a **headless CRM database schema** and wires the CRM to
+Time-Clock. Time-Clock is built to hang off a host CRM; the integration seams
+already exist and are what the CRM connects through:
 
-```bash
-cd ~/Downloads/timeclock
-npm install         # if node_modules is missing
-npm start           # http://localhost:8787  (agent /embed · supervisor /supervisor)
-```
+- **Identity** — the CRM backend mints a short-lived signed JWT
+  (`{iss:tenant, sub:hostUserId, role?, exp}`) → `apps/api/src/identity.ts`. The
+  embed forwards it; we verify + map `hostUserId → agent`. Role travels in the
+  claim and is clamped to `min(jwtRole, recordRole)`.
+- **Embed** — one-line loader `widget/loader.js` (closed shadow-DOM iframe,
+  postMessage, `window.TimeClock.setIdentityToken(jwt)`).
+- **Employee sync** — the identity map (`agent.hostUserId ↔ hrisEmployeeId`) and
+  the HRIS webhook receiver `POST /webhooks/hris` (`Employee.Modified/Created`).
+- **Per-tenant HRIS** — connector catalog (`apps/api/src/hris/catalog.ts`):
+  none / mock / Paycor / Gusto, administered per tenant.
 
-Demo tenant seeds on boot (agents, schedules, a mock HRIS). **State is
-in-memory — every restart resets it.**
+**Open design questions for the CRM schema:** what entities the CRM owns vs
+Time-Clock owns (people/identity, org/departments, tenancy); how CRM user records
+map to `agent` (hostUserId keys); whether the CRM drives role + department
+assignment (via JWT claims) or Time-Clock's admin UI stays authoritative; and
+where the shared DB lives once Time-Clock gets persistence (see the standing P0).
+Keep the CRM **headless** — DB + API, no UI of its own; Time-Clock's widget/board
+is the front end.
 
-### Shipped this week (all verified end-to-end)
-- Advisory break/lunch recommender (no hard constraints; meal/coverage risk flags)
-- Orphan clock-out gate (estimated time + reason before re-clock-in)
-- Per-department coverage; History view with date filter (agent + supervisor)
-- 10-minute paid break policy
-- State-aware CA lunch rules (CA vs TX via `agent.locationState` → state_rule)
-- Scheduler: weekly patterns + per-date exceptions + resolver; adherence + overtime
-- Schedule editor UI (repeating week + day override + clear)
-- AI forecast (coverage / overtime / meal-deadline / adherence → alerts + summary)
-- Claude-backed `SummaryProvider` (opus-5, effort low; falls back to template)
-- Employees "user menu": create (local or HRIS-synced), pull from HRIS (mock),
-  link/unlink sync, edit, deactivate
-- Retention & archival: soft-delete (5-yr punch retention), 90-day archive, no
-  hard delete; HRIS vs timeclock retention authority
-- Active-state ("lit") header pills
+Ship the CRM-schema changes into the repo, let CI go green, then cut **v0.2.0**
+(multi-arch) and re-point the containers. **Do not release yet** — v0.1.0 stays.
 
-## Decisions needed from you (these gate the big work)
+## Where it stands (baseline = v0.1.0)
 
-1. **Persistence / system-of-record.** THE big one. The app runs entirely on an
-   in-memory store (`apps/api/src/db.ts`) — resets on restart, single process,
-   no durability. Two real paths:
-   - **Adopt the bs5_1 Supabase build** as the base (its `supabase/migrations/*`
-     are the real system of record: append-only punch stream, tamper-evident hash
-     chain, RLS + FORCE RLS, transactional outbox, immutability triggers). We
-     ported its *policy logic* (rules/adherence/overtime/forecast) into this
-     build but NOT those integrity guarantees.
-   - **Wire this build to Postgres via Prisma** (`apps/api/src/stores/prismaStores.ts`
-     already implements the two ports) and add the integrity pieces ourselves.
-   → Recommendation: adopt Supabase for the write path; keep the TS core as-is.
-2. **Claude summary model.** Defaulted to `claude-opus-5` (skill-mandated) — heavy
-   for a one-sentence summary. Keep, or set `ANTHROPIC_MODEL=claude-haiku-4-5`?
-3. **Real HRIS (Paycor) vs mock.** Demo uses `hrisProvider:'mock'`. Going live
-   needs: Paycor OAuth token endpoint (TokenProvider — TBD), `listEmployees` path
-   confirmed against the portal, real subscription key + activation.
+All green: `npm run typecheck`, `npm test`, `npm run test:scheduling`. Two live
+containers on the published image `ghcr.io/alexrelintex/timeclock:0.1.0`:
 
-## Next work, prioritized
+| Container | Instance | Port |
+|---|---|---|
+| `timeclock-cwdr` | **CWDR (UAT)** — master/starting env | 8787 |
+| `timeclock-hc` | **Housing Counselors** — tenant | 8788 |
 
-### P0 — before this is more than a demo
-- [ ] Decide + implement persistence (see decision #1). Nothing survives a
-      restart today.
-- [ ] Integrity the in-memory build lacks vs the Supabase design: append-only
-      enforcement, tamper-evident hash chain, DB-level tenant isolation (RLS).
-- [ ] Block punches for **inactive/archived** employees (identity resolution
-      currently doesn't check `active` — a deactivated user could still punch).
+Local build-out: `cd ~/Downloads/timeclock && npm start` (tsx, hot-reloadable) —
+but the running instances are the GHCR containers now, not `npm start`.
+`docker compose` runs the GHCR image (version-pinned via `TIMECLOCK_VERSION`).
+**State is still in-memory — every container restart re-seeds.**
 
-### P1 — correctness & coverage
-- [ ] Tests for the new surface: employees CRUD, archival 90-day gate, state-aware
-      meal rules (CA vs TX), forecast wiring, orphan correction. Only core smoke +
-      scheduling tests exist today.
-- [ ] Scheduler edge cases in the in-memory port: overnight shifts + DST. The
-      bs5_1 SQL tests (`supabase/tests/90_scheduler.sql`) pin these; our TS port
-      has basic two-pass tz handling but no tests.
-- [ ] Real host-identity auth flow (today the demo uses `?user=`; JWT verify
-      exists in `identity.ts` but needs a real host integration + JWKS).
+## Shipped since the last handoff (all verified, on `main`)
+- **Roles (4 tiers)**: admin > manager (multi-dept) > supervisor (one dept by
+  default, holds an assigned list) > user. `requireAdmin` gates HRIS/tenant config;
+  department scoping per tier; role in JWT claim, clamped to the stored ceiling.
+- **Multi-HRIS connector catalog** + **Gusto** connector (time_sheets shift model,
+  punch-pairing/OT seams) alongside Paycor + mock; per-tenant admin (`/api/admin/hris`).
+- **CSV export** of all punches (scoped + date/department filters).
+- **Timezone**: employee sees own local time; supervisor sees server/HQ time;
+  world-timezone dropdown; local-date fix.
+- **Deployment**: Dockerfile (tsx runtime, graceful shutdown, `SEED_DEMO`/`INSTANCE_NAME`),
+  docker-compose, `DEPLOY.md`.
+- **CI/CD**: `.github/workflows/ci.yml` (typecheck + both suites + docker build +
+  image health check) and `release.yml` (semver tag → multi-arch push to GHCR).
+- Earlier: advisory recommender, orphan clock-out gate, per-dept coverage, history +
+  date filter, 10-min breaks, state-aware CA/TX meal rules, scheduler + editor,
+  AI forecast + Claude `SummaryProvider`, employees CRUD, retention/archival.
 
-### P2 — polish / nice-to-have
-- [ ] Adherence day-view panel in the supervisor UI (planned-vs-actual per agent);
-      the data + core (`adherence.ts`) exist, no dedicated panel yet.
-- [ ] `git init` the project — `~/Downloads/timeclock` is NOT its own git repo
-      (git resolves to a parent). No project history / commits.
-- [ ] Live Claude summary check with a real `ANTHROPIC_API_KEY` (only verified
-      against a mock endpoint so far).
+## Standing decisions / P0 (unchanged, gate "real")
+1. **Persistence.** Still in-memory (`apps/api/src/db.ts`) — nothing survives a
+   restart; can't scale past one replica. This is the crux the CRM-schema work
+   forces a decision on: adopt the **bs5_1 Supabase** system-of-record (append-only
+   + hash chain + RLS; `~/Downloads/timeclock-supabase-bs5_1.zip`) or wire Postgres
+   via the existing `apps/api/src/stores/prismaStores.ts`. The CRM DB and the
+   Time-Clock store likely share this Postgres.
+2. **Block punches for inactive/archived employees** — identity resolution doesn't
+   check `active` yet (a deactivated user could still punch).
+3. Broader tests (employees CRUD, archival gate, roles, CA/TX rules, forecast).
+4. Real host-JWT/JWKS auth (today: demo `?user=` in dev; HS256 JWT verify exists).
 
-## Fast resume checklist
-1. `cd ~/Downloads/timeclock && npm start` → open `/supervisor`.
-2. Skim this file's Decisions section — answer #1 first; it unblocks most P0.
-3. `README.md` has the architecture + file map; `docs/` (in the bs5_1 zip at
-   `/tmp/tc-sb/timeclock`, or re-extract `~/Downloads/timeclock-supabase-bs5_1.zip`)
-   has the Supabase design if we go that route.
+## Fast resume
+1. Containers already run v0.1.0: `docker ps` → CWDR UAT :8787, HC :8788.
+2. Build-out: `npm start` locally, or edit → `docker build` → recreate container.
+3. Release when ready: `git tag -a vX.Y.Z -m … && git push origin vX.Y.Z`
+   → CI + GHCR multi-arch publish; then `TIMECLOCK_VERSION=X.Y.Z docker compose up -d`.
+4. `README.md` = architecture + file map; `DEPLOY.md` = deploy/env; this file = status.
