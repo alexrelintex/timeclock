@@ -68,6 +68,15 @@ by swapping `MemoryDb` for the Prisma stores; enable Paycor by setting a tenant'
   (with a "Sync to HRIS" toggle) or **Pull from HRIS**. Endpoints:
   `GET/POST /api/supervisor/employees`, `POST /api/supervisor/employees/pull-hris`,
   `POST /api/supervisor/employees/:id/hris` (link/unlink).
+- **Email is the host identity.** Create an employee with an `email` and it
+  becomes `hostUserId` (lower-cased): the one identifier the host CRM, the
+  directory (Entra) and the HRIS all hold for the same person, so their records
+  line up without a mapping table. **Pull from HRIS** does the same from the
+  employee's HRIS email. A host-minted identity JWT therefore carries
+  `sub: <email>`. Without an email the id is a slug from the name, as before;
+  lookups are case-insensitive either way. Edit an employee's `email` to move
+  their identity; a second employee with the same email is refused (`409
+  EMAIL_IN_USE`).
 - **Sync is per-employee**, keyed on `agent.hrisEmployeeId`: set → the employee's
   IN/OUT punches flow through the transactional outbox to the HRIS; `null` → the
   employee lives solely in the timeclock DB and nothing leaves the app. (Breaks and
@@ -99,7 +108,12 @@ by swapping `MemoryDb` for the Prisma stores; enable Paycor by setting a tenant'
   the prior shift and (with an HRIS) round-trips as a missed-punch request.
 - **History**: `GET /api/history?date=` (agent) and
   `GET /api/supervisor/history?date=&department=` (supervisor) return punches
-  for an agent-local calendar date; both UIs expose a date filter.
+  for an agent-local calendar date; both UIs expose a date filter. Every row
+  carries `id`, `agentId` and `hostUserId`, so a host mirroring punches can
+  dedupe on the event id.
+- **Health**: `GET /healthz` → `{ ok, tenants, version, name }`. `version` is
+  the package version, or `TIMECLOCK_VERSION` when the deployment sets it — a
+  host watching the instance can tell an update from a restart.
 
 ## Folded in from bs5_1 (additive — nothing removed)
 - **State-aware CA lunch rules** — meal deadline + §226.7 premium follow the

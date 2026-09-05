@@ -51,7 +51,12 @@ export interface Agent {
   // list; when none is assigned the scope defaults to their own single department.
   // Admins see all departments regardless.
   managedDepartments?: string[];
+  // The identity the host asserts in its JWT `sub`. When an email is known it IS
+  // the email, lower-cased — the one identifier the host CRM, the directory and
+  // the HRIS all hold for the same person, so their records line up without a
+  // mapping table. Without an email it is a generated slug.
   hostUserId: string;
+  email?: string | null;
   hrisEmployeeId: string | null;
   hrisDepartmentId: string | null;
   hrisActivityTypeId: string | null;

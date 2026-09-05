@@ -15,6 +15,7 @@
     "start": "tsx apps/api/src/server.ts",
     "test": "tsx tests/smoke.test.ts",
     "test:scheduling": "tsx tests/scheduling.test.ts",
+    "test:api": "tsx tests/api.test.ts",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "docker:build": "docker build -t timeclock:latest .",
