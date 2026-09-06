@@ -29,6 +29,14 @@ where the shared DB lives once Time-Clock gets persistence (see the standing P0)
 Keep the CRM **headless** — DB + API, no UI of its own; Time-Clock's widget/board
 is the front end.
 
+**Architecture invariant (see `docs/adr/0001-storage-drivers-and-crm-isolation.md`):**
+Time-Clock is always its own system of record. One image runs three ways via
+`STORE_DRIVER` — `memory` (standalone/ephemeral), `postgres` (durable; own
+`timeclock` schema, may co-locate with a CRM), `embedded` (self-contained durable,
+e.g. PGlite). Its data/history stay **isolated** from any CRM/HRIS: linkage is
+`agent.hostUserId ↔ CRM user id` resolved in code, never a DB foreign key. The
+headless CRM schema is a **separate** schema/DB with its own migrations.
+
 Ship the CRM-schema changes into the repo, let CI go green, then cut **v0.2.0**
 (multi-arch) and re-point the containers. **Do not release yet** — v0.1.0 stays.
 
