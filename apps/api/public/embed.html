@@ -99,6 +99,18 @@
       <div class="dept" id="dept"></div>
       <div class="dept" id="localclock" style="margin-top:-8px"></div>
 
+      <!-- Connect by email: how a CRM links its user to this Time-Clock employee.
+           The host backend mints a signed identity token carrying the email; here
+           we call the demo mint endpoint, then the widget runs as the linked agent. -->
+      <div class="connect" id="connectBox">
+        <div class="row" style="gap:6px">
+          <input type="email" id="connEmail" placeholder="you@company.com" autocomplete="email"
+                 style="flex:1;min-width:0;padding:7px 9px;border-radius:8px;border:1px solid #2b3550;background:#0e1526;color:#e7ecf5;font-size:13px" />
+          <button class="go" id="connBtn" style="width:auto;padding:7px 12px">Connect</button>
+        </div>
+        <div class="muted" id="connMsg" style="margin-top:5px">Connect a CRM user to Time-Clock by email.</div>
+      </div>
+
       <!-- Missing clock-out correction (orphan IN) -->
       <div class="correct hidden" id="correct">
         <h3>⚠ Missing clock-out</h3>
@@ -309,6 +321,37 @@
         for (const a of agents) { const o=document.createElement('option'); o.value=a.hostUserId; o.textContent=a.displayName+(a.isSupervisor?' ★':''); if (a.hostUserId===user) o.selected=true; sel.appendChild(o); }
         sel.onchange = () => { user=sel.value; $('correct').classList.add('hidden'); connect(); if (histOpen) loadHistory(); if (schedOpenFlag) setTimeout(loadSchedule, 200); };
       }
+
+      // Connect-by-email: mint an identity token for the address (as a host CRM
+      // backend would), which links the CRM user to the matching Time-Clock agent
+      // on first login. Then run the widget as that now-bound agent.
+      async function connectByEmail() {
+        const email = ($('connEmail').value || '').trim();
+        const msg = $('connMsg');
+        if (!email) { msg.textContent = 'Enter an email to connect.'; return; }
+        msg.textContent = 'Connecting…';
+        try {
+          const res = await fetch('/api/dev/token?tenant=' + encodeURIComponent(tenant) +
+            '&email=' + encodeURIComponent(email));
+          const data = await res.json();
+          if (!res.ok) { msg.textContent = data.error || 'Could not connect that email.'; return; }
+          // Present the signed token once (as the widget would in production). THIS
+          // is the moment the server links the CRM user to the agent by email; a 409
+          // means the email is already linked to a different host user.
+          const me = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + data.token } });
+          if (!me.ok) { const err = await me.json().catch(() => ({})); msg.textContent = err.error || ('connect failed (HTTP ' + me.status + ')'); return; }
+          // Bound now; the returned hostUserId resolves on the demo stream too.
+          user = data.hostUserId;
+          msg.textContent = 'Connected as ' + (data.hostUserId) + (data.connectedBy === 'email' ? ' (linked by email)' : '');
+          $('correct').classList.add('hidden');
+          connect();
+          loadSwitcher();
+          if (histOpen) loadHistory();
+          if (schedOpenFlag) setTimeout(loadSchedule, 200);
+        } catch (e) { msg.textContent = 'Connect failed: ' + e.message; }
+      }
+      $('connBtn').onclick = connectByEmail;
+      $('connEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectByEmail(); });
 
       loadSwitcher(); connect();
       setInterval(render, 1000);

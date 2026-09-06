@@ -52,6 +52,11 @@ export interface Agent {
   // Admins see all departments regardless.
   managedDepartments?: string[];
   hostUserId: string;
+  // Work email — the CRM<->Time-Clock connection key. A CRM identifies its user
+  // by email; on first login (identity JWT with an `email` claim) we match an
+  // existing agent by this field and bind the CRM's hostUserId to it. Normalized
+  // lowercase. Optional: local-only agents may have none until an HRIS/CRM sets it.
+  email?: string | null;
   hrisEmployeeId: string | null;
   hrisDepartmentId: string | null;
   hrisActivityTypeId: string | null;
