@@ -7,7 +7,10 @@
 //     a host-minted token with sub=<email> resolves them, case does not matter,
 //     and a second employee with the same email is refused
 //   - history rows carry id, agentId and hostUserId so a host can dedupe a mirror
-//   - a pull from the (mock) HRIS keys the imported employees on their email
+//   - a token whose sub is the email connects a CRM user to an agent that only
+//     carries the email (seeded or synced) and binds the host id to them once
+//   - a pull from the (mock) HRIS keys the imported employees on their email and
+//     binds to an agent already here under that email instead of duplicating them
 //
 // Runs with `npm run test:api`; CI runs it after the domain suites.
 
@@ -16,10 +19,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { mintIdentityToken } from '../apps/api/src/identity';
 
 const require = createRequire(import.meta.url);
 const ROOT = resolve(import.meta.dirname ?? '.', '..');
 const PKG = require(resolve(ROOT, 'package.json')) as { version: string };
+// The secret the spawned instance verifies with; the test mints as a host backend would.
+const IDENTITY_SECRET = 'api-test-identity-secret';
 
 async function freePort(): Promise<number> {
   return new Promise((ok, fail) => {
@@ -54,7 +60,7 @@ async function main(): Promise<void> {
   // The tsx bin the repo already runs the service with (`npm start`).
   const child: ChildProcess = spawn(resolve(ROOT, 'node_modules/.bin/tsx'), ['apps/api/src/server.ts'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NODE_ENV: 'development', SEED_DEMO: 'true', ANTHROPIC_API_KEY: '' },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NODE_ENV: 'development', SEED_DEMO: 'true', ANTHROPIC_API_KEY: '', TIMECLOCK_IDENTITY_SECRET: IDENTITY_SECRET },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -139,12 +145,32 @@ async function main(): Promise<void> {
     const stale = await asToken(minted.token ?? '', '/api/me');
     console.assert(stale.status === 403, `a token for the old email no longer maps (got ${stale.status})`);
 
-    // 6. A pull from the HRIS keys the imported people on their HRIS email.
+    // 6. The CRM contract: sub is the email, and the email rides as a claim too.
+    //    Lena is seeded with an email and no host id (created in-app, never logged
+    //    in from the CRM). Her first CRM token connects her and binds the host id.
+    const LENA = 'lena.fischer@acme.example';
+    const rosterBefore = await (await admin('/api/supervisor/employees')).json() as { employees: Array<{ hostUserId: string; email: string | null }> };
+    console.assert(rosterBefore.employees.some((e) => e.email === LENA && e.hostUserId === ''), 'seed has an agent with an email and no host id');
+    const crmToken = (sub: string) => mintIdentityToken({ tenantId: 'demo', hostUserId: sub, email: sub, displayName: 'Lena Fischer' }, IDENTITY_SECRET);
+    const firstLogin = await asToken(crmToken(LENA), '/api/me');
+    console.assert(firstLogin.status === 200, `first CRM token connects the email-only agent (got ${firstLogin.status})`);
+    const rosterAfter = await (await admin('/api/supervisor/employees')).json() as { employees: Array<{ hostUserId: string; email: string | null }> };
+    console.assert(rosterAfter.employees.filter((e) => e.email === LENA).length === 1, 'connecting did not create a second Lena');
+    console.assert(rosterAfter.employees.some((e) => e.email === LENA && e.hostUserId === LENA), 'the host id bound to her is the email');
+    console.assert((await asToken(crmToken(LENA.toUpperCase()), '/api/me')).status === 200, 'later logins resolve by id whatever the case');
+    console.assert((await asToken(crmToken('nobody@acme.example'), '/api/me')).status === 403, 'an unknown email is not auto-provisioned');
+
+    // 7. A pull from the HRIS keys the imported people on their HRIS email, and
+    //    binds the HRIS id to anyone already here under that email (Lena again).
     const pulled = await admin('/api/supervisor/employees/pull-hris', { method: 'POST', body: JSON.stringify({ department: 'Support' }) });
     console.assert(pulled.status === 200, `pull-hris → 200 (got ${pulled.status})`);
-    const pulledBody = await pulled.json() as { created: number; imported: Array<{ hostUserId: string; hrisEmployeeId: string }> };
+    const pulledBody = await pulled.json() as { created: number; linked: number; imported: Array<{ hostUserId: string; hrisEmployeeId: string; linked?: boolean }> };
     console.assert(pulledBody.created > 0, 'the mock roster imported somebody');
     console.assert(pulledBody.imported.every((i) => i.hostUserId.includes('@')), `imported employees are keyed on email (${pulledBody.imported.map((i) => i.hostUserId).join(', ')})`);
+    const lenaPull = pulledBody.imported.find((i) => i.hostUserId === LENA);
+    console.assert(pulledBody.linked >= 1 && lenaPull?.linked === true, 'the roster entry matching an existing email was bound, not imported again');
+    const rosterFinal = await (await admin('/api/supervisor/employees')).json() as { employees: Array<{ email: string | null }> };
+    console.assert(rosterFinal.employees.filter((e) => e.email === LENA).length === 1, 'still exactly one Lena after the pull');
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => setTimeout(r, 200));

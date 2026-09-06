@@ -113,6 +113,7 @@ export class MemoryDb implements PunchStore, OutboxStore {
     // Host ids are emails when the host knows one, and an email's case is not
     // part of its identity — a token minted for Sam@Acme.com must find sam@acme.com.
     const wanted = hostUserId.trim().toLowerCase();
+    if (!wanted) return undefined; // never match an unlinked ('') agent by id
     return [...this.agents.values()].find(
       (a) => a.tenantId === tenantId && a.hostUserId.toLowerCase() === wanted,
     );

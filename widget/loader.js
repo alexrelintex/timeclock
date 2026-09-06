@@ -9,6 +9,13 @@
  * JWT minted by the HOST BACKEND (never a raw user id) via:
  *   window.TimeClock.setIdentityToken(jwt)
  *
+ * The token's `sub` is the host's user id. For a CRM that knows its people by
+ * email, that is the email itself, and the same address also rides as the
+ * `email` claim: an agent the instance already holds under that email (created
+ * in-app or synced from an HRIS) is connected to the CRM user on first login.
+ * Because it rides inside the signed JWT it is host-attested — this loader never
+ * reads or forwards a raw email from the page.
+ *
  * Host → widget (window.TimeClock):
  *   setIdentityToken(jwt)          who this is; re-send on 'timeclock:token-expired'
  *   open({ intent })               expand the widget; intent 'clock-in' or

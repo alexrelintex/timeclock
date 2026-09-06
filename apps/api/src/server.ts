@@ -394,7 +394,9 @@ function hostIdentityFor(
     return { error: 'email must be a valid address', status: 400 };
   }
   const normalized = email.trim().toLowerCase();
-  const holder = db.agentByHostUserId(tenantId, normalized);
+  // The address may identify someone as their host id (created with it) or sit
+  // in `email` alone (seeded or synced, linked to a host user later); both hold it.
+  const holder = db.agentByHostUserId(tenantId, normalized) ?? db.agentByEmail(tenantId, normalized);
   if (holder && holder.id !== exceptAgentId) {
     return { error: `email ${normalized} already identifies another employee`, status: 409 };
   }
@@ -1001,9 +1003,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       }
       const b = await readJson<{ department?: string; locationState?: string }>(req);
       let created = 0;
+      let linked = 0;
       let skipped = 0;
       let cursor: string | undefined;
-      const imported: { displayName: string; hrisEmployeeId: string; hostUserId: string }[] = [];
+      const imported: { displayName: string; hrisEmployeeId: string; hostUserId: string; linked?: boolean }[] = [];
       do {
         const page = await adapter.listEmployees(cursor);
         for (const emp of page.items) {
@@ -1012,6 +1015,26 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             continue;
           }
           const name = emp.displayName || emp.employeeNumber || emp.hrisEmployeeId;
+          // Someone already here under that email (created in-app, seeded, or
+          // connected from the CRM) is the same person: bind the HRIS id to them
+          // rather than importing a duplicate. The email becomes their host id if
+          // they had none yet, so a CRM token for it resolves them directly.
+          const email = normalizeEmail(emp.email);
+          const existing = email
+            ? (db.agentByHostUserId(r.tenant.id, email) ?? db.agentByEmail(r.tenant.id, email))
+            : undefined;
+          if (existing) {
+            const bound: Agent = {
+              ...existing,
+              email: existing.email ?? email ?? null,
+              hostUserId: existing.hostUserId || email!,
+              hrisEmployeeId: emp.hrisEmployeeId,
+            };
+            db.upsertAgent(bound);
+            imported.push({ displayName: bound.displayName, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: bound.hostUserId, linked: true });
+            linked += 1;
+            continue;
+          }
           // The HRIS knows the email; that is the host identity, so an employee
           // pulled from Paycor lines up with the same person in the host CRM.
           const pulled = hostIdentityFor(r.tenant.id, name, emp.email ?? null);
@@ -1038,7 +1061,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         }
         cursor = page.nextCursor;
       } while (cursor);
-      return sendJson(res, 200, { ok: true, created, skipped, imported, provider: adapter.provider });
+      return sendJson(res, 200, { ok: true, created, linked, skipped, imported, provider: adapter.provider });
     }
 
     // ---- run the 90-day archival policy on demand (same as the hourly job).
@@ -1256,12 +1279,14 @@ function handleWebhook(raw: string, res: ServerResponse): void {
   if (!db.getTenant(tenantId)) return sendJson(res, 404, { error: 'unknown tenant' });
 
   if (evt.type === 'Employee.Modified' || evt.type === 'Employee.Created') {
-    // Match by existing hris id, then host id, then email — which is the host
-    // id for anyone created with one, so the same lookup serves both.
+    // Match by existing hris id, then host id, then email (the connection key).
+    // An email is also the host id for anyone created with one, and the email
+    // lookup covers agents that carry it in `email` only (linked later by token).
+    const email = normalizeEmail(emp.email);
     let agent =
       (emp.hrisEmployeeId && db.agentByHrisEmployeeId(tenantId, emp.hrisEmployeeId)) ||
       (emp.hostUserId && db.agentByHostUserId(tenantId, emp.hostUserId)) ||
-      (emp.email && db.agentByHostUserId(tenantId, emp.email)) ||
+      (email && (db.agentByHostUserId(tenantId, email) || db.agentByEmail(tenantId, email))) ||
       undefined;
     if (!agent) return sendJson(res, 202, { matched: false });
     const updated: Agent = {
