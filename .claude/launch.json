@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
       "port": 8787
+    },
+    {
+      "name": "timeclock-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:preview"],
+      "port": 8799
     }
   ]
 }

@@ -40,8 +40,10 @@ import { makeSummaryProvider, providerKind } from './summaryProvider.js';
 import {
   IdentityError,
   mintIdentityToken,
+  normalizeEmail,
   verifyIdentityToken,
   verifyWebhookSignature,
+  type IdentityClaims,
 } from './identity.js';
 import { openSse, readBody, readJson, sendFile, sendJson, sendText } from './http.js';
 import type { Agent, Role, ScheduleKindT, Tenant } from './types.js';
@@ -171,6 +173,44 @@ class AuthError extends Error {
 }
 
 /**
+ * Map verified identity claims to a stored Agent, connecting a CRM user to an
+ * existing employee by email on first login.
+ *
+ * Resolution order:
+ *   1. hostUserId — the fast path once a CRM user is linked.
+ *   2. email (the CRM<->Time-Clock connection key) — when the hostUserId isn't
+ *      mapped yet but the token carries an email, match an existing agent by it
+ *      and BIND this hostUserId to that agent (one time). Every later login then
+ *      hits path 1.
+ *
+ * We deliberately do NOT auto-create an agent for an unknown email: an employee
+ * must already exist in Time-Clock (created in-app or synced from an HRIS). This
+ * keeps Time-Clock's roster its own system of record and stops a CRM from spraying
+ * new people into the payroll store. An email that matches an agent already linked
+ * to a DIFFERENT hostUserId is a conflict (409), not a silent re-link.
+ */
+function resolveAgentFromClaims(tenantId: string, claims: IdentityClaims): Agent | undefined {
+  const byId = db.agentByHostUserId(tenantId, claims.hostUserId);
+  if (byId) {
+    // Opportunistically backfill a missing email from the token so the agent is
+    // also reachable by email later (e.g. before an HRIS sync fills it in).
+    if (claims.email && !byId.email) db.linkHostUser(byId.id, byId.hostUserId, claims.email);
+    return byId;
+  }
+  if (!claims.email) return undefined;
+  const byEmail = db.agentByEmail(tenantId, claims.email);
+  if (!byEmail) return undefined;
+  if (byEmail.hostUserId && byEmail.hostUserId !== claims.hostUserId) {
+    throw new AuthError(409, 'email already linked to a different host user');
+  }
+  const linked = db.linkHostUser(byEmail.id, claims.hostUserId, claims.email);
+  console.log(
+    `[identity] connected CRM user ${claims.hostUserId} -> agent ${byEmail.id} (${byEmail.displayName}) by email`,
+  );
+  return linked;
+}
+
+/**
  * Resolve the caller to an Agent. Production path: a host-minted identity JWT in
  * Authorization: Bearer. Demo path (only when DEMO): ?user=<hostUserId> or the
  * x-demo-user header, so the panel is explorable without a host CRM.
@@ -186,7 +226,7 @@ function resolveAgent(req: IncomingMessage, url: URL): Resolved {
     }
     const tenant = db.getTenant(claims.tenantId);
     if (!tenant) throw new AuthError(401, 'unknown tenant');
-    const agent = db.agentByHostUserId(tenant.id, claims.hostUserId);
+    const agent = resolveAgentFromClaims(tenant.id, claims);
     if (!agent) throw new AuthError(403, 'no agent mapped for host user');
     // The stored agent role is the CEILING: a host-asserted role can only RESTRICT
     // (demote), never escalate above what an admin granted in-app. Effective role =
@@ -446,19 +486,43 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (p === '/loader.js')
     return sendFile(res, resolve(REPO_ROOT, 'widget/loader.js'), 'text/javascript; charset=utf-8');
 
-  // ---- demo helper: mint an identity token the way a host backend would
+  // ---- demo helper: mint an identity token the way a host backend would.
+  // Two shapes, mirroring how a real CRM backend would sign:
+  //   ?user=<hostUserId>[&email=..]  — the CRM already knows Time-Clock's user id
+  //   ?email=<addr>                  — CRM knows only the email; Time-Clock links
+  //                                    it to the matching agent on first login and
+  //                                    a synthetic hostUserId stands in for the CRM
+  //                                    user id (crm-<local-part>).
   if (p === '/api/dev/token' && DEMO) {
-    const user = url.searchParams.get('user');
     const tenant = url.searchParams.get('tenant') ?? 'demo';
-    if (!user) return sendJson(res, 400, { error: 'user required' });
-    const agent = db.agentByHostUserId(tenant, user);
-    if (!agent) return sendJson(res, 404, { error: 'no such user' });
-    // Mint the way a host backend would, asserting the mapped agent's role.
+    const user = url.searchParams.get('user');
+    const email = normalizeEmail(url.searchParams.get('email'));
+    if (!user && !email) return sendJson(res, 400, { error: 'user or email required' });
+
+    // Look up the agent the token will resolve to, so we can assert its real role.
+    const agent = user
+      ? db.agentByHostUserId(tenant, user)
+      : email
+        ? db.agentByEmail(tenant, email)
+        : undefined;
+    if (user && !agent) return sendJson(res, 404, { error: 'no such user' });
+    if (!user && !agent) return sendJson(res, 404, { error: 'no agent with that email' });
+
+    // For the email-only flow, stand in a CRM user id the way a host backend has
+    // one. If the matched agent is already linked, reuse its id (idempotent).
+    const hostUserId =
+      user ?? (agent!.hostUserId || `crm-${email!.split('@')[0].replace(/[^a-z0-9]+/g, '-')}`);
     const token = mintIdentityToken(
-      { tenantId: tenant, hostUserId: user, displayName: agent.displayName, role: agent.role },
+      {
+        tenantId: tenant,
+        hostUserId,
+        displayName: agent!.displayName,
+        email: email ?? agent!.email ?? undefined,
+        role: agent!.role,
+      },
       IDENTITY_SECRET,
     );
-    return sendJson(res, 200, { token, role: agent.role });
+    return sendJson(res, 200, { token, role: agent!.role, hostUserId, connectedBy: user ? 'id' : 'email' });
   }
 
   // ---- roster helper for the demo agent-switcher
@@ -1202,6 +1266,8 @@ function handleWebhook(raw: string, res: ServerResponse): void {
     if (!agent) return sendJson(res, 202, { matched: false });
     const updated: Agent = {
       ...agent,
+      email: email ?? agent.email,
+      hostUserId: emp.hostUserId || agent.hostUserId,
       hrisEmployeeId: emp.hrisEmployeeId ?? agent.hrisEmployeeId,
       hrisDepartmentId: emp.departmentId ?? agent.hrisDepartmentId,
       hrisActivityTypeId: emp.activityTypeId ?? agent.hrisActivityTypeId,
