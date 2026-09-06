@@ -110,9 +110,12 @@ export class MemoryDb implements PunchStore, OutboxStore {
   }
   /** Identity resolution: host CRM user id (from signed JWT) -> agent. */
   agentByHostUserId(tenantId: string, hostUserId: string): Agent | undefined {
-    if (!hostUserId) return undefined; // never match an unlinked ('') agent by id
+    // Host ids are emails when the host knows one, and an email's case is not
+    // part of its identity — a token minted for Sam@Acme.com must find sam@acme.com.
+    const wanted = hostUserId.trim().toLowerCase();
+    if (!wanted) return undefined; // never match an unlinked ('') agent by id
     return [...this.agents.values()].find(
-      (a) => a.tenantId === tenantId && a.hostUserId === hostUserId,
+      (a) => a.tenantId === tenantId && a.hostUserId.toLowerCase() === wanted,
     );
   }
   /**

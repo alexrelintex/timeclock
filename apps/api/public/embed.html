@@ -84,9 +84,31 @@
       .sched .kd { font-size: 11px; color: #d8b4fe; margin-left: 6px; }
       .hidden { display: none; }
       .muted { color: #8b95a9; font-size: 13px; }
+      /* Embedded in a host page: collapsed to a launcher until the host or the person opens it. */
+      body.collapsed { padding: 0; background: transparent; overflow: hidden; }
+      body.collapsed .clock { display: none; }
+      #launcher { display: none; }
+      body.collapsed #launcher {
+        display: flex; align-items: center; justify-content: center;
+        width: 72px; height: 72px; border-radius: 36px; border: 0; cursor: pointer;
+        background: #12151c; color: #e8ecf3; font-size: 26px;
+        box-shadow: inset 0 0 0 2px #232838;
+      }
+      body.collapsed #launcher.s-ACTIVE { box-shadow: inset 0 0 0 3px #22c55e; }
+      body.collapsed #launcher.s-ON_BREAK { box-shadow: inset 0 0 0 3px #f59e0b; }
+      body.collapsed #launcher.s-ON_LUNCH { box-shadow: inset 0 0 0 3px #38bdf8; }
+      #closeBtn { display: none; }
+      body.embedded #closeBtn { display: inline-block; }
+      body.embedded #switcher { display: none; }
+      .intent { display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 11px; font-size: 14px;
+        background: #1c2432; border: 1px solid #2f435f; }
+      .intent.show { display: block; }
+      .intent b { color: #fff; }
+      button.pb.asked { outline: 3px solid #60a5fa; outline-offset: 2px; }
     </style>
   </head>
   <body>
+    <button id="launcher" title="Time clock" aria-label="Open time clock">⏱</button>
     <div class="clock">
       <div class="head">
         <strong>⏱ Time clock</strong>
@@ -94,22 +116,14 @@
           <span class="lnk" id="schedBtn">Schedule</span>
           <span class="lnk" id="histBtn">History</span>
           <select id="switcher" title="Demo: switch agent"></select>
+          <span class="lnk" id="closeBtn" title="Collapse">✕</span>
         </div>
       </div>
       <div class="dept" id="dept"></div>
       <div class="dept" id="localclock" style="margin-top:-8px"></div>
 
-      <!-- Connect by email: how a CRM links its user to this Time-Clock employee.
-           The host backend mints a signed identity token carrying the email; here
-           we call the demo mint endpoint, then the widget runs as the linked agent. -->
-      <div class="connect" id="connectBox">
-        <div class="row" style="gap:6px">
-          <input type="email" id="connEmail" placeholder="you@company.com" autocomplete="email"
-                 style="flex:1;min-width:0;padding:7px 9px;border-radius:8px;border:1px solid #2b3550;background:#0e1526;color:#e7ecf5;font-size:13px" />
-          <button class="go" id="connBtn" style="width:auto;padding:7px 12px">Connect</button>
-        </div>
-        <div class="muted" id="connMsg" style="margin-top:5px">Connect a CRM user to Time-Clock by email.</div>
-      </div>
+      <!-- What the host asked for (login → clock in, logout → clock out). The person decides. -->
+      <div class="intent" id="intent"></div>
 
       <!-- Missing clock-out correction (orphan IN) -->
       <div class="correct hidden" id="correct">
@@ -162,11 +176,87 @@
 
     <script>
       const params = new URLSearchParams(location.search);
+      const $ = (id) => document.getElementById(id);
       let user = params.get('user') || 'u-marcus';
       const tenant = params.get('tenant') || 'demo';
-      const q = () => `?user=${encodeURIComponent(user)}&tenant=${encodeURIComponent(tenant)}`;
 
-      const $ = (id) => document.getElementById(id);
+      // ---- Embedded mode (inside a host page via widget/loader.js) ------------------
+      // The host backend mints a short-lived identity JWT and the loader hands it
+      // over by postMessage. From then on every call carries it as a bearer and the
+      // demo ?user= path is not used. The host can also open or close the widget and
+      // say what it is asking for; the person still makes the punch.
+      const EMBEDDED = window.parent !== window;
+      let identityToken = null;
+      let hostOrigin = null; // learned from the first host message; replies go only there
+      let collapsed = EMBEDDED;
+      let intent = null; // 'clock-in' | 'clock-out' | null
+      const PROTOCOL_VERSION = 1;
+
+      const q = () => identityToken ? '' : `?user=${encodeURIComponent(user)}&tenant=${encodeURIComponent(tenant)}`;
+      const headers = (extra) => Object.assign({}, extra || {}, identityToken ? { Authorization: 'Bearer ' + identityToken } : {});
+      const authed = (url, init) => fetch(url, Object.assign({}, init || {}, { headers: headers(init && init.headers) }));
+
+      function toHost(type, payload) {
+        if (!EMBEDDED) return;
+        // 'ready' goes out before any host message has been seen, so its target is
+        // open; it carries nothing. Everything else goes only to the host that spoke.
+        window.parent.postMessage({ source: 'timeclock-widget', version: PROTOCOL_VERSION, type, payload: payload || {} }, hostOrigin || '*');
+      }
+      function setCollapsed(next) {
+        collapsed = next;
+        document.body.classList.toggle('collapsed', collapsed);
+        toHost('resize', collapsed ? { width: 72, height: 72, expanded: false } : { width: 420, height: 720, expanded: true });
+      }
+      function showIntent() {
+        const el = $('intent');
+        for (const b of document.querySelectorAll('#buttons button')) b.classList.remove('asked');
+        if (!intent || !view) { el.className = 'intent'; el.textContent = ''; return; }
+        const running = view.status === 'ACTIVE' || view.status === 'ON_BREAK' || view.status === 'ON_LUNCH';
+        if (intent === 'clock-out' && running) {
+          el.className = 'intent show';
+          el.innerHTML = view.status === 'ACTIVE'
+            ? "You're signing out of the CRM and still <b>clocked in</b>. Clock out now?"
+            : "You're signing out of the CRM while <b>" + view.status.replace('_', ' ').toLowerCase() + "</b>. End it and clock out?";
+          const ask = view.status === 'ACTIVE' ? 'OUT' : view.status === 'ON_BREAK' ? 'BREAK_END' : 'LUNCH_END';
+          document.querySelector('#buttons button[data-type="' + ask + '"]').classList.add('asked');
+        } else if (intent === 'clock-in' && view.status === 'CLOCKED_OUT') {
+          el.className = 'intent show';
+          el.innerHTML = "You're signed in to the CRM. <b>Clock in</b> to start your shift?";
+          document.querySelector('#buttons button[data-type="IN"]').classList.add('asked');
+        } else {
+          el.className = 'intent'; el.textContent = ''; intent = null;
+        }
+      }
+      if (EMBEDDED) {
+        document.body.classList.add('embedded');
+        window.addEventListener('message', (ev) => {
+          const msg = ev.data || {};
+          if (msg.source !== 'timeclock-host') return;
+          if (!hostOrigin) hostOrigin = ev.origin;
+          else if (ev.origin !== hostOrigin) return; // one host per widget
+          const payload = msg.payload || {};
+          switch (msg.type) {
+            case 'identity':
+              identityToken = typeof payload.token === 'string' ? payload.token : null;
+              $('correct').classList.add('hidden');
+              refresh(true);
+              break;
+            case 'open':
+              intent = payload.intent === 'clock-in' || payload.intent === 'clock-out' ? payload.intent : null;
+              setCollapsed(false);
+              showIntent();
+              break;
+            case 'close':
+              setCollapsed(true);
+              break;
+          }
+        });
+        $('launcher').addEventListener('click', () => setCollapsed(false));
+        $('closeBtn').addEventListener('click', () => setCollapsed(true));
+        setCollapsed(true);
+        toHost('ready');
+      }
+
       const fmt = (ms) => { const neg=ms<0; ms=Math.abs(ms); const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return (neg?'-':'')+h+':'+String(m).padStart(2,'0'); };
       const fmtMS = (ms) => { const neg=ms<0; ms=Math.abs(ms); const s=Math.floor(ms/1000),m=Math.floor(s/60); return (neg?'-':'')+m+':'+String(s%60).padStart(2,'0'); };
       const toLocalInput = (iso) => { const d=new Date(iso); const p=(n)=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -222,11 +312,39 @@
           const blocked = corr && b.dataset.type==='IN';
           b.disabled = blocked || !view.allowed.includes(b.dataset.type);
         }
+        $('launcher').className = 's-' + view.status;
+        showIntent();
+      }
+
+      let lastState = '';
+      function announceState() {
+        if (!EMBEDDED || !view) return;
+        const state = { status: view.status, shiftStart: view.shiftStart, allowed: view.allowed };
+        const key = JSON.stringify(state);
+        if (key === lastState) return;
+        lastState = key;
+        toHost('state', state);
+      }
+
+      // Identity-token mode has no EventSource (it cannot carry a bearer), so the
+      // view is polled; a punch refreshes it at once. Demo mode keeps the stream.
+      let pollTimer = null;
+      async function refresh(restart) {
+        if (!identityToken) return;
+        if (restart && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        try {
+          const res = await authed('/api/me');
+          if (res.status === 401) { identityToken = null; toHost('token-expired'); return; }
+          if (!res.ok) return;
+          view = await res.json(); view._recvAt = Date.now(); render(); announceState();
+        } catch { /* transient; next poll */ }
+        if (!pollTimer) pollTimer = setInterval(() => refresh(false), 5000);
       }
 
       async function punch(type) {
         $('toast').textContent = '';
-        const res = await fetch('/api/punch'+q(), { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type}) });
+        const res = await authed('/api/punch'+q(), { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type}) });
+        if (res.status === 401 && identityToken) { identityToken = null; toHost('token-expired'); $('toast').textContent = 'Session expired — reconnecting…'; return; }
         const data = await res.json();
         if (!res.ok) {
           if (data.code === 'ORPHAN_CLOCKOUT_REQUIRED' && data.correction) {
@@ -234,7 +352,11 @@
           }
           $('toast').textContent = data.error || 'error'; return;
         }
-        view = data.view; view._recvAt = Date.now(); render();
+        view = data.view; view._recvAt = Date.now();
+        if (intent === 'clock-out' && (type === 'OUT')) intent = null;
+        if (intent === 'clock-in' && type === 'IN') intent = null;
+        render(); announceState();
+        toHost('punched', { type, status: view.status });
       }
 
       $('buttons').addEventListener('click', (e) => { const b=e.target.closest('button'); if (b && !b.disabled) punch(b.dataset.type); });
@@ -244,7 +366,7 @@
         const val = $('estTime').value, reason = $('reason').value.trim();
         if (!val) { $('correctErr').textContent='Enter an estimated clock-out time.'; return; }
         if (!reason) { $('correctErr').textContent='A reason is required.'; return; }
-        const res = await fetch('/api/clockout-correction'+q(), {
+        const res = await authed('/api/clockout-correction'+q(), {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ estimatedClockoutUtc: new Date(val).toISOString(), reason }),
         });
@@ -271,7 +393,7 @@
       $('histDate').addEventListener('change', loadHistory);
       async function loadHistory() {
         const date = $('histDate').value;
-        const res = await fetch(`/api/history${q()}&date=${date}`);
+        const res = await authed(`/api/history${q()}${q() ? '&' : '?'}date=${date}`);
         const data = await res.json();
         const el = $('histList');
         if (!data.events.length) { el.innerHTML = '<div class="muted">No punches on this date.</div>'; return; }
@@ -294,7 +416,7 @@
         const dInTz = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
         const from = dInTz(new Date()), to = dInTz(new Date(Date.now() + 6 * 864e5));
         $('schedTz').textContent = `times in ${tz}`;
-        const data = await (await fetch(`/api/me/schedule${q()}&from=${from}&to=${to}`)).json();
+        const data = await (await authed(`/api/me/schedule${q()}${q() ? '&' : '?'}from=${from}&to=${to}`)).json();
         const wd = (d) => new Date(d + 'T00:00:00Z').getUTCDay();
         const el = $('schedList');
         if (!data.days || !data.days.length) { el.innerHTML = '<div class="muted">No schedule on file.</div>'; return; }
@@ -309,9 +431,10 @@
 
       let es;
       function connect() {
+        if (identityToken) return; // embedded: polled with the bearer instead
         if (es) es.close();
         es = new EventSource('/api/me/stream'+q());
-        es.addEventListener('update', (e) => { const prev = view; view = JSON.parse(e.data); view._recvAt = Date.now(); render(); });
+        es.addEventListener('update', (e) => { view = JSON.parse(e.data); view._recvAt = Date.now(); render(); announceState(); });
       }
 
       async function loadSwitcher() {
@@ -322,38 +445,8 @@
         sel.onchange = () => { user=sel.value; $('correct').classList.add('hidden'); connect(); if (histOpen) loadHistory(); if (schedOpenFlag) setTimeout(loadSchedule, 200); };
       }
 
-      // Connect-by-email: mint an identity token for the address (as a host CRM
-      // backend would), which links the CRM user to the matching Time-Clock agent
-      // on first login. Then run the widget as that now-bound agent.
-      async function connectByEmail() {
-        const email = ($('connEmail').value || '').trim();
-        const msg = $('connMsg');
-        if (!email) { msg.textContent = 'Enter an email to connect.'; return; }
-        msg.textContent = 'Connecting…';
-        try {
-          const res = await fetch('/api/dev/token?tenant=' + encodeURIComponent(tenant) +
-            '&email=' + encodeURIComponent(email));
-          const data = await res.json();
-          if (!res.ok) { msg.textContent = data.error || 'Could not connect that email.'; return; }
-          // Present the signed token once (as the widget would in production). THIS
-          // is the moment the server links the CRM user to the agent by email; a 409
-          // means the email is already linked to a different host user.
-          const me = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + data.token } });
-          if (!me.ok) { const err = await me.json().catch(() => ({})); msg.textContent = err.error || ('connect failed (HTTP ' + me.status + ')'); return; }
-          // Bound now; the returned hostUserId resolves on the demo stream too.
-          user = data.hostUserId;
-          msg.textContent = 'Connected as ' + (data.hostUserId) + (data.connectedBy === 'email' ? ' (linked by email)' : '');
-          $('correct').classList.add('hidden');
-          connect();
-          loadSwitcher();
-          if (histOpen) loadHistory();
-          if (schedOpenFlag) setTimeout(loadSchedule, 200);
-        } catch (e) { msg.textContent = 'Connect failed: ' + e.message; }
-      }
-      $('connBtn').onclick = connectByEmail;
-      $('connEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectByEmail(); });
-
-      loadSwitcher(); connect();
+      // Embedded: wait for the host's identity. Demo: the switcher and the stream.
+      if (!EMBEDDED) { loadSwitcher(); connect(); }
       setInterval(render, 1000);
     </script>
   </body>

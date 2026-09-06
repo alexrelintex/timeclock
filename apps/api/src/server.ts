@@ -14,6 +14,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
@@ -52,6 +53,13 @@ const PUBLIC = resolve(HERE, '../public');
 const REPO_ROOT = resolve(HERE, '../../..');
 
 const PORT = Number(process.env.PORT ?? 8787);
+// What this build is. package.json ships in the image; an orchestrator that
+// knows better (the GHCR tag, a build arg) sets TIMECLOCK_VERSION. Reported on
+// /healthz so a host — the CRM watches it — can tell an updated instance from
+// a restarted one.
+const VERSION: string =
+  process.env.TIMECLOCK_VERSION ??
+  ((createRequire(import.meta.url)(resolve(dirname(fileURLToPath(import.meta.url)), '../../../package.json')) as { version?: string }).version ?? '0.0.0');
 const IDENTITY_SECRET = process.env.TIMECLOCK_IDENTITY_SECRET ?? 'dev-demo-secret';
 const WEBHOOK_SECRET = process.env.TIMECLOCK_WEBHOOK_SECRET ?? 'dev-webhook-secret';
 const DEMO = process.env.NODE_ENV !== 'production';
@@ -346,19 +354,53 @@ function makeHostUserId(tenantId: string, displayName: string): string {
 }
 
 function historyRow(e: {
+  id: string;
+  agentId: string;
   eventType: string;
   eventTime: Date;
   source: string;
   status: string;
   note?: string;
 }) {
+  // `id` and the agent's host identity are what a host system keys on when it
+  // mirrors punches: the same row read twice is the same row, not a second punch.
+  const agent = db.getAgent(e.agentId);
   return {
+    id: e.id,
+    agentId: e.agentId,
+    hostUserId: agent?.hostUserId ?? null,
     eventType: e.eventType,
     eventTime: e.eventTime.toISOString(),
     source: e.source,
     status: e.status,
     note: e.note ?? null,
   };
+}
+
+// The host identity for a person: the email when there is one — lower-cased,
+// the key the host CRM, the directory and the HRIS share — else a slug from
+// the name. Returns the problem when an email is malformed or already taken.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function hostIdentityFor(
+  tenantId: string,
+  displayName: string,
+  email: unknown,
+  exceptAgentId?: string,
+): { hostUserId: string; email: string | null } | { error: string; status: number } {
+  if (email === undefined || email === null || email === '') {
+    return { hostUserId: makeHostUserId(tenantId, displayName), email: null };
+  }
+  if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
+    return { error: 'email must be a valid address', status: 400 };
+  }
+  const normalized = email.trim().toLowerCase();
+  // The address may identify someone as their host id (created with it) or sit
+  // in `email` alone (seeded or synced, linked to a host user later); both hold it.
+  const holder = db.agentByHostUserId(tenantId, normalized) ?? db.agentByEmail(tenantId, normalized);
+  if (holder && holder.id !== exceptAgentId) {
+    return { error: `email ${normalized} already identifies another employee`, status: 409 };
+  }
+  return { hostUserId: normalized, email: normalized };
 }
 
 // ---- schedule-editor validation
@@ -438,7 +480,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const method = req.method ?? 'GET';
 
   // ---- static + health
-  if (p === '/healthz') return sendJson(res, 200, { ok: true, tenants: db.listTenants().length });
+  if (p === '/healthz') return sendJson(res, 200, { ok: true, tenants: db.listTenants().length, version: VERSION, name: 'timeclock' });
   if (p === '/' ) return sendFile(res, resolve(PUBLIC, 'index.html'), 'text/html; charset=utf-8');
   if (p === '/embed') return sendFile(res, resolve(PUBLIC, 'embed.html'), 'text/html; charset=utf-8');
   if (p === '/supervisor')
@@ -889,6 +931,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           managedDepartments: a.managedDepartments ?? null,
           isSupervisor: a.isSupervisor,
           hostUserId: a.hostUserId,
+          email: a.email ?? null,
           hrisEmployeeId: a.hrisEmployeeId,
           synced: a.hrisEmployeeId !== null,
           active: a.active,
@@ -915,6 +958,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         : null;
       // Only an admin may assign a role above 'user'; managers create team members.
       const role = resolveAssignableRole(r.agent, b.role, b.isSupervisor);
+      const identity = hostIdentityFor(r.tenant.id, displayName, b.email);
+      if ('error' in identity) return sendJson(res, identity.status, { error: identity.error, code: identity.status === 409 ? 'EMAIL_IN_USE' : 'INVALID_EMAIL' });
       const agent: Agent = {
         id: randomUUID(),
         tenantId: r.tenant.id,
@@ -928,7 +973,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           (role === 'manager' || role === 'supervisor') && Array.isArray(b.managedDepartments)
             ? (b.managedDepartments as unknown[]).filter((d): d is string => typeof d === 'string')
             : undefined,
-        hostUserId: makeHostUserId(r.tenant.id, displayName),
+        hostUserId: identity.hostUserId,
+        email: identity.email,
         hrisEmployeeId,
         hrisDepartmentId: typeof b.hrisDepartmentId === 'string' ? b.hrisDepartmentId : null,
         hrisActivityTypeId: typeof b.hrisActivityTypeId === 'string' ? b.hrisActivityTypeId : null,
@@ -940,6 +986,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         ok: true,
         agentId: agent.id,
         hostUserId: agent.hostUserId,
+        email: agent.email ?? null,
         synced: agent.hrisEmployeeId !== null,
         source: 'MANUAL',
       });
@@ -956,9 +1003,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       }
       const b = await readJson<{ department?: string; locationState?: string }>(req);
       let created = 0;
+      let linked = 0;
       let skipped = 0;
       let cursor: string | undefined;
-      const imported: { displayName: string; hrisEmployeeId: string }[] = [];
+      const imported: { displayName: string; hrisEmployeeId: string; hostUserId: string; linked?: boolean }[] = [];
       do {
         const page = await adapter.listEmployees(cursor);
         for (const emp of page.items) {
@@ -967,6 +1015,30 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             continue;
           }
           const name = emp.displayName || emp.employeeNumber || emp.hrisEmployeeId;
+          // Someone already here under that email (created in-app, seeded, or
+          // connected from the CRM) is the same person: bind the HRIS id to them
+          // rather than importing a duplicate. The email becomes their host id if
+          // they had none yet, so a CRM token for it resolves them directly.
+          const email = normalizeEmail(emp.email);
+          const existing = email
+            ? (db.agentByHostUserId(r.tenant.id, email) ?? db.agentByEmail(r.tenant.id, email))
+            : undefined;
+          if (existing) {
+            const bound: Agent = {
+              ...existing,
+              email: existing.email ?? email ?? null,
+              hostUserId: existing.hostUserId || email!,
+              hrisEmployeeId: emp.hrisEmployeeId,
+            };
+            db.upsertAgent(bound);
+            imported.push({ displayName: bound.displayName, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: bound.hostUserId, linked: true });
+            linked += 1;
+            continue;
+          }
+          // The HRIS knows the email; that is the host identity, so an employee
+          // pulled from Paycor lines up with the same person in the host CRM.
+          const pulled = hostIdentityFor(r.tenant.id, name, emp.email ?? null);
+          const pulledIdentity = 'error' in pulled ? { hostUserId: makeHostUserId(r.tenant.id, name), email: null } : pulled;
           db.upsertAgent({
             id: randomUUID(),
             tenantId: r.tenant.id,
@@ -976,19 +1048,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             timezone: r.tenant.timezone,
             role: 'user',
             isSupervisor: false,
-            hostUserId: makeHostUserId(r.tenant.id, name),
+            hostUserId: pulledIdentity.hostUserId,
+            email: pulledIdentity.email,
             hrisEmployeeId: emp.hrisEmployeeId, // synced by construction
             hrisDepartmentId: null,
             hrisActivityTypeId: null,
             mealWaiverOnFile: false,
             active: true,
           });
-          imported.push({ displayName: name, hrisEmployeeId: emp.hrisEmployeeId });
+          imported.push({ displayName: name, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: pulledIdentity.hostUserId });
           created += 1;
         }
         cursor = page.nextCursor;
       } while (cursor);
-      return sendJson(res, 200, { ok: true, created, skipped, imported, provider: adapter.provider });
+      return sendJson(res, 200, { ok: true, created, linked, skipped, imported, provider: adapter.provider });
     }
 
     // ---- run the 90-day archival policy on demand (same as the hourly job).
@@ -1021,6 +1094,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             : agent.locationState,
         timezone: typeof b.timezone === 'string' && b.timezone.trim() ? b.timezone.trim() : agent.timezone,
       };
+      if (b.email !== undefined) {
+        const identity = hostIdentityFor(r.tenant.id, next.displayName, b.email, agent.id);
+        if ('error' in identity) return sendJson(res, identity.status, { error: identity.error, code: identity.status === 409 ? 'EMAIL_IN_USE' : 'INVALID_EMAIL' });
+        // Setting an email moves the host identity onto it; clearing one falls
+        // back to the slug the record was created with, or a fresh one.
+        next.email = identity.email;
+        next.hostUserId = identity.email ? identity.hostUserId : (agent.email ? makeHostUserId(r.tenant.id, next.displayName) : agent.hostUserId);
+      }
       // Role changes are admin-only; a manager editing a profile can't change tiers.
       if (r.agent.role === 'admin' && (typeof b.role === 'string' || typeof b.isSupervisor === 'boolean')) {
         next.role = resolveAssignableRole(r.agent, b.role, b.isSupervisor);
@@ -1199,11 +1280,13 @@ function handleWebhook(raw: string, res: ServerResponse): void {
 
   if (evt.type === 'Employee.Modified' || evt.type === 'Employee.Created') {
     // Match by existing hris id, then host id, then email (the connection key).
+    // An email is also the host id for anyone created with one, and the email
+    // lookup covers agents that carry it in `email` only (linked later by token).
     const email = normalizeEmail(emp.email);
     let agent =
       (emp.hrisEmployeeId && db.agentByHrisEmployeeId(tenantId, emp.hrisEmployeeId)) ||
       (emp.hostUserId && db.agentByHostUserId(tenantId, emp.hostUserId)) ||
-      (email && db.agentByEmail(tenantId, email)) ||
+      (email && (db.agentByHostUserId(tenantId, email) || db.agentByEmail(tenantId, email))) ||
       undefined;
     if (!agent) return sendJson(res, 202, { matched: false });
     const updated: Agent = {
