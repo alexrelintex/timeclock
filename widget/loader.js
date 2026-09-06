@@ -8,6 +8,12 @@
  * origin allowlist. The host page must supply a short-lived signed identity
  * JWT minted by the HOST BACKEND (never a raw user id) via:
  *   window.TimeClock.setIdentityToken(jwt)
+ *
+ * Connecting a CRM user to Time-Clock by EMAIL: the host backend puts the user's
+ * email in the token's `email` claim when it signs. Because it rides inside the
+ * signed JWT it is host-attested — this loader never reads or forwards a raw email
+ * from the page. On first login Time-Clock matches the existing employee by that
+ * email and binds the CRM's user id to it; later logins use the id directly.
  * CSP the host must allow:
  *   script-src  https://cdn.YOURAPP.com
  *   frame-src   https://widget.YOURAPP.com

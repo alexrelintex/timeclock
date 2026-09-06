@@ -11,11 +11,22 @@ Time-Clock. Time-Clock is built to hang off a host CRM; the integration seams
 already exist and are what the CRM connects through:
 
 - **Identity** — the CRM backend mints a short-lived signed JWT
-  (`{iss:tenant, sub:hostUserId, role?, exp}`) → `apps/api/src/identity.ts`. The
-  embed forwards it; we verify + map `hostUserId → agent`. Role travels in the
+  (`{iss:tenant, sub:hostUserId, email?, role?, exp}`) → `apps/api/src/identity.ts`.
+  The embed forwards it; we verify + map `hostUserId → agent`. Role travels in the
   claim and is clamped to `min(jwtRole, recordRole)`.
+- **Connect by email** (new) — the `email` claim is the CRM↔Time-Clock connection
+  key. A CRM knows its user by email; Time-Clock knows an agent by `hostUserId`. On
+  a `hostUserId` we haven't seen, an `email` claim matches an existing agent and
+  **binds** the CRM's `hostUserId` to it once (`resolveAgentFromClaims` in
+  `server.ts`); later logins use the fast id path. We never auto-create an agent for
+  an unknown email (roster stays Time-Clock's own system of record), and an email
+  already linked to a *different* host user is a **409** conflict, not a silent
+  re-link. Email is host-attested (inside the signed token) — the page never sends a
+  raw email. `agent.email` + `db.agentByEmail`/`db.linkHostUser` back it; the webhook
+  receiver also matches by email. Demo: `/api/dev/token?email=<addr>` mints the way a
+  host backend would; the embed's **Connect by email** box drives the whole flow.
 - **Embed** — one-line loader `widget/loader.js` (closed shadow-DOM iframe,
-  postMessage, `window.TimeClock.setIdentityToken(jwt)`).
+  postMessage, `window.TimeClock.setIdentityToken(jwt)`; email rides in the token).
 - **Employee sync** — the identity map (`agent.hostUserId ↔ hrisEmployeeId`) and
   the HRIS webhook receiver `POST /webhooks/hris` (`Employee.Modified/Created`).
 - **Per-tenant HRIS** — connector catalog (`apps/api/src/hris/catalog.ts`):

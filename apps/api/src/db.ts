@@ -110,9 +110,38 @@ export class MemoryDb implements PunchStore, OutboxStore {
   }
   /** Identity resolution: host CRM user id (from signed JWT) -> agent. */
   agentByHostUserId(tenantId: string, hostUserId: string): Agent | undefined {
+    if (!hostUserId) return undefined; // never match an unlinked ('') agent by id
     return [...this.agents.values()].find(
       (a) => a.tenantId === tenantId && a.hostUserId === hostUserId,
     );
+  }
+  /**
+   * Identity resolution by email — the CRM<->Time-Clock connection key. Email is
+   * compared case-insensitively (both sides are stored normalized). Used to link a
+   * CRM user to an existing agent on first login.
+   */
+  agentByEmail(tenantId: string, email: string): Agent | undefined {
+    const needle = email.trim().toLowerCase();
+    if (!needle) return undefined;
+    return [...this.agents.values()].find(
+      (a) => a.tenantId === tenantId && (a.email ?? '').toLowerCase() === needle,
+    );
+  }
+  /**
+   * Bind a CRM's hostUserId (and optionally its email) to an agent — the one-time
+   * "connect" that turns an email match into the fast hostUserId path for every
+   * later login. Returns the updated agent, or undefined if the id is unknown.
+   */
+  linkHostUser(agentId: string, hostUserId: string, email?: string): Agent | undefined {
+    const a = this.agents.get(agentId);
+    if (!a) return undefined;
+    const updated: Agent = {
+      ...a,
+      hostUserId,
+      email: email ? email.trim().toLowerCase() : a.email,
+    };
+    this.agents.set(agentId, updated);
+    return updated;
   }
   agentByHrisEmployeeId(tenantId: string, hrisEmployeeId: string): Agent | undefined {
     return [...this.agents.values()].find(
