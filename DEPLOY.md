@@ -31,6 +31,7 @@ docker compose logs -f
 |---|---|---|
 | `PORT` | `8787` | Listen port |
 | `HOST` | `0.0.0.0` | Bind address |
+| `STORE_DRIVER` | `memory` | Persistence: `memory` (ephemeral) · `postgres` / `embedded` (durable, planned). Time-Clock keeps its own isolated system of record on every driver — see `docs/adr/0001`. |
 | `NODE_ENV` | `development` | `production` disables the `?user=` demo auth path |
 | `SEED_DEMO` | on in dev, off in prod | `true` loads the demo tenant/agents on boot |
 | `TIMECLOCK_IDENTITY_SECRET` | dev default | HMAC secret for host-minted identity JWTs (set a real value) |

@@ -13,8 +13,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import type { PunchStore } from '@timeclock/core';
-import type { OutboxStore, OutboxRow } from '@timeclock/hris';
+import type { OutboxRow } from '@timeclock/hris';
+import type { Store } from './store/contract.js';
 import type {
   Agent,
   ComplianceException,
@@ -57,7 +57,7 @@ export type DbEvent =
   | { type: 'exception'; tenantId: string; agentId: string; exception: ComplianceException }
   | { type: 'outbox'; tenantId: string };
 
-export class MemoryDb implements PunchStore, OutboxStore {
+export class MemoryDb implements Store {
   readonly bus = new EventEmitter();
   private tenants = new Map<string, Tenant>();
   private agents = new Map<string, Agent>();

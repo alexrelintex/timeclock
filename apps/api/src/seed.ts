@@ -5,7 +5,7 @@
  * meal, an on-break agent, and a fresh clock-in.
  */
 import { randomUUID } from 'node:crypto';
-import type { MemoryDb } from './db.js';
+import type { Store } from './store/contract.js';
 import type { Agent, PunchEventType, Tenant } from './types.js';
 
 export const DEMO_TENANT_ID = 'demo';
@@ -19,7 +19,7 @@ export interface SeededAgent {
   isSupervisor: boolean;
 }
 
-export function seedDemo(db: MemoryDb, now: Date = new Date()): { tenant: Tenant; agents: SeededAgent[] } {
+export function seedDemo(db: Store, now: Date = new Date()): { tenant: Tenant; agents: SeededAgent[] } {
   const tenant: Tenant = {
     id: DEMO_TENANT_ID,
     name: process.env.INSTANCE_NAME || 'Acme Support (demo)',
