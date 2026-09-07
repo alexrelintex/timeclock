@@ -49,6 +49,11 @@ export function seedDemo(db: Store, now: Date = new Date()): { tenant: Tenant; a
     isSupervisor: (a.role ?? 'user') !== 'user',
     managedDepartments: a.managedDepartments,
     hostUserId: a.hostUserId,
+    // Work email = the CRM<->Time-Clock connection key. Defaults to a stable
+    // address derived from the host id so every seeded agent is email-reachable.
+    email:
+      a.email ??
+      `${a.displayName.split(' ')[0].toLowerCase()}.${(a.displayName.split(' ')[1] ?? 'x').replace(/[^a-z]/gi, '').toLowerCase()}@acme.example`,
     hrisEmployeeId: a.hrisEmployeeId ?? null,
     hrisDepartmentId: null,
     hrisActivityTypeId: null,
@@ -128,6 +133,19 @@ export function seedDemo(db: Store, now: Date = new Date()): { tenant: Tenant; a
   // Nia — Support — just clocked in.
   const nia = register(mkAgent({ displayName: 'Nia Brooks', hostUserId: 'u-nia', department: 'Support' }));
   event(nia.id, 'IN', 8);
+
+  // Lena — Support — CRM-provisioned but NOT yet linked: she exists in Time-Clock
+  // (created in-app / synced) with an email but no hostUserId. She's unreachable by
+  // the id path; the first identity token carrying her email connects the CRM user
+  // to this record (binds hostUserId). Demonstrates connect-by-email on first login.
+  register(
+    mkAgent({
+      displayName: 'Lena Fischer',
+      hostUserId: '', // unlinked until a CRM connects by email
+      email: 'lena.fischer@acme.example',
+      department: 'Support',
+    }),
+  );
 
   // Dana — Sales — in 5h30m ago, no lunch: BREACH -> missed meal -> premium hour payable.
   const dana = register(mkAgent({ displayName: 'Dana Kim', hostUserId: 'u-dana', department: 'Sales' }));

@@ -13,8 +13,10 @@
   "scripts": {
     "dev": "tsx watch apps/api/src/server.ts",
     "start": "tsx apps/api/src/server.ts",
+    "start:preview": "PORT=8799 SEED_DEMO=true tsx apps/api/src/server.ts",
     "test": "tsx tests/smoke.test.ts",
     "test:scheduling": "tsx tests/scheduling.test.ts",
+    "test:api": "tsx tests/api.test.ts",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",

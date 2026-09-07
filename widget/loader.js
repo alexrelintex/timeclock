@@ -8,6 +8,29 @@
  * origin allowlist. The host page must supply a short-lived signed identity
  * JWT minted by the HOST BACKEND (never a raw user id) via:
  *   window.TimeClock.setIdentityToken(jwt)
+ *
+ * The token's `sub` is the host's user id. For a CRM that knows its people by
+ * email, that is the email itself, and the same address also rides as the
+ * `email` claim: an agent the instance already holds under that email (created
+ * in-app or synced from an HRIS) is connected to the CRM user on first login.
+ * Because it rides inside the signed JWT it is host-attested — this loader never
+ * reads or forwards a raw email from the page.
+ *
+ * Host → widget (window.TimeClock):
+ *   setIdentityToken(jwt)          who this is; re-send on 'timeclock:token-expired'
+ *   open({ intent })               expand the widget; intent 'clock-in' or
+ *                                  'clock-out' makes the widget ask for that punch
+ *                                  (a login or logout flow opens it and the person
+ *                                  punches — the host never punches for them)
+ *   close()                        collapse back to the launcher
+ *
+ * Widget → host (DOM events on document, detail = payload):
+ *   timeclock:ready                the widget is up and will take identity
+ *   timeclock:state                { status, shiftStart, allowed } after every change —
+ *                                  status is CLOCKED_OUT | ACTIVE | ON_BREAK | ON_LUNCH
+ *   timeclock:punched              { type } after a successful punch (IN, OUT, …)
+ *   timeclock:token-expired        mint a fresh identity JWT and call setIdentityToken
+ *
  * CSP the host must allow:
  *   script-src  https://cdn.YOURAPP.com
  *   frame-src   https://widget.YOURAPP.com
@@ -73,7 +96,32 @@
         // Host should mint a fresh identity JWT and call setIdentityToken again.
         document.dispatchEvent(new CustomEvent('timeclock:token-expired'));
         break;
+      case 'state':
+        // Where the person stands right now; a logout flow reads this to decide
+        // whether to ask for a clock-out before signing off.
+        document.dispatchEvent(new CustomEvent('timeclock:state', { detail: msg.payload || {} }));
+        break;
+      case 'punched':
+        document.dispatchEvent(new CustomEvent('timeclock:punched', { detail: msg.payload || {} }));
+        break;
     }
+    if (msg.type === 'ready') document.dispatchEvent(new CustomEvent('timeclock:ready'));
+  });
+
+  var pendingCommands = [];
+  function command(type, payload) {
+    if (ready) send(type, payload);
+    else pendingCommands.push([type, payload]);
+  }
+  // Flush queued commands once the widget is up (after identity, so an 'open'
+  // on login shows the right person).
+  window.addEventListener('message', function (ev) {
+    if (ev.origin !== WIDGET_ORIGIN) return;
+    var msg = ev.data || {};
+    if (msg.source !== 'timeclock-widget' || msg.type !== 'ready') return;
+    var queued = pendingCommands;
+    pendingCommands = [];
+    for (var i = 0; i < queued.length; i++) send(queued[i][0], queued[i][1]);
   });
 
   window.TimeClock = {
@@ -81,6 +129,18 @@
     setIdentityToken: function (jwt) {
       if (ready) send('identity', { token: jwt });
       else pendingToken = jwt;
+    },
+    /**
+     * Expand the widget. opts.intent 'clock-in' | 'clock-out' asks the person for
+     * that punch — the widget highlights the button and, for clock-out while
+     * clocked in, shows a prompt. The punch is theirs to make; nothing here
+     * punches on their behalf.
+     */
+    open: function (opts) {
+      command('open', { intent: (opts && opts.intent) || null });
+    },
+    close: function () {
+      command('close', {});
     },
   };
 })();
