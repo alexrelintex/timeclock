@@ -11,6 +11,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  admin
+  manager
+  supervisor
+  user
+}
+
 enum PunchEventType {
   IN
   OUT
@@ -88,19 +95,31 @@ model Agent {
   tenant          Tenant  @relation(fields: [tenantId], references: [id])
   displayName     String
   department      String  @default("General") // coverage is measured per department
+  locationState   String  @default("CA") // USPS work-state code -> wage rules (CA/TX/…)
   timezone        String // IANA; drives HRIS local-time conversion + meal timers
+  // Role tiers: admin > manager > supervisor > user. isSupervisor kept as the
+  // convenience "has board access" flag (role != user).
+  role            Role    @default(user)
   isSupervisor    Boolean @default(false)
+  managedDepartments String[] // departments a manager/supervisor oversees (empty = own)
   // Identity mapping (host CRM identity -> agent -> HRIS employee)
   hostUserId      String // asserted by host via signed JWT, verified server-side
+  email           String? // CRM<->Time-Clock connection key (normalized lowercase)
   hrisEmployeeId  String? // e.g. Paycor employee GUID; null until mapped
   hrisDepartmentId String? // provider-required write fields (Paycor: GUID)
   hrisActivityTypeId String?
   mealWaiverOnFile Boolean @default(false) // CA <=6h shift waiver
   active          Boolean @default(true)
+  deactivatedAt   DateTime? // soft-delete time; drives the 90-day archive rule
+  archivedAt      DateTime? // archived (hidden) after 90 days inactive; data retained
+  scheduledStart  DateTime? // optional shift bounds used by the coverage recommender
+  scheduledEnd    DateTime?
   createdAt       DateTime @default(now())
 
   punchEvents     PunchEvent[]
   exceptions      ComplianceException[]
+  schedulePatterns   SchedulePattern[]
+  scheduleExceptions ScheduleException[]
 
   @@unique([tenantId, hostUserId])
   @@index([tenantId, hrisEmployeeId])
@@ -177,4 +196,47 @@ model HrisOutbox {
 
   @@index([tenantId, status])
   @@index([trackingId])
+}
+
+enum ScheduleKind {
+  WORK
+  TRAINING
+  HOLIDAY
+  VACATION
+  PTO
+  SICK
+  LEAVE
+  OFF
+}
+
+// Repeating weekly schedule: one row per (agent, weekday). Wall-clock "HH:MM"
+// strings in the agent's own timezone; null start/end = a non-working day kind.
+model SchedulePattern {
+  id           String       @id @default(uuid())
+  agentId      String
+  agent        Agent        @relation(fields: [agentId], references: [id])
+  weekday      Int // 0 = Sunday .. 6 = Saturday
+  kind         ScheduleKind @default(WORK)
+  startTime    String?
+  endTime      String?
+  lunchTime    String?
+  lunchMinutes Int?
+
+  @@unique([agentId, weekday])
+}
+
+// Per-date override of the weekly pattern (one row per agent-local YYYY-MM-DD).
+model ScheduleException {
+  id           String       @id @default(uuid())
+  agentId      String
+  agent        Agent        @relation(fields: [agentId], references: [id])
+  date         String // YYYY-MM-DD, agent-local
+  kind         ScheduleKind
+  startTime    String?
+  endTime      String?
+  lunchTime    String?
+  lunchMinutes Int?
+  note         String?
+
+  @@unique([agentId, date])
 }

@@ -1,0 +1,48 @@
+# Supabase CLI configuration.
+#
+# The only line that matters for correctness is `schemas` below: `tc_api` must be
+# exposed and `timeclock` must NOT be. The tables carry no grants for anon or
+# authenticated, so exposing them would not by itself leak data — but it would put
+# the private surface in the generated types and invite direct table access, which
+# is exactly what the RPC-only design prevents.
+#
+# `supabase start` reads this. On a hosted project, set the same list under
+# Project Settings → API → Exposed schemas.
+
+project_id = "timeclock"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public", "tc_api"]
+# `extensions` is here only so pg_net / pg_cron helpers resolve for the dashboard;
+# the migrations themselves take no extension dependency.
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.pooler]
+enabled = false
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+# Supabase Auth is NOT the identity source for this module: the host CRM asserts
+# identity and apps/api mints the session token (CLAUDE.md decision #5). Auth stays
+# enabled only because Realtime and PostgREST expect the schema to exist.
+site_url = "http://127.0.0.1:3000"
+jwt_expiry = 3600
+enable_signup = false
+
+[analytics]
+enabled = false

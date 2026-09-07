@@ -30,7 +30,7 @@ import {
   type ScheduleKind,
   type SummaryProvider,
 } from '@timeclock/core';
-import type { MemoryDb } from './db.js';
+import type { Store } from './store/contract.js';
 import { rulesForState } from './stateRules.js';
 import type { Agent, PunchEvent } from './types.js';
 
@@ -77,7 +77,7 @@ function weekdayOf(dateStr: string): number {
 
 // ------------------------------------------------------ schedule resolution
 /** Resolve one date to a planned shift: exception > pattern > unscheduled. */
-export function resolvePlanned(db: MemoryDb, agent: Agent, dateStr: string): PlannedShift {
+export function resolvePlanned(db: Store, agent: Agent, dateStr: string): PlannedShift {
   const ex = db.getScheduleException(agent.id, dateStr);
   const row = ex ?? db.patternForWeekday(agent.id, weekdayOf(dateStr));
   const source: PlannedShift['source'] = ex ? 'EXCEPTION' : row ? 'PATTERN' : 'UNSCHEDULED';
@@ -143,7 +143,7 @@ export interface ForecastResult {
 }
 
 export async function runForecast(
-  db: MemoryDb,
+  db: Store,
   tenantId: string,
   dateStr: string,
   now: Date = new Date(),
@@ -238,7 +238,7 @@ function weekOf(dateStr: string): string[] {
 
 /** Resolved schedule for a date range, for the supervisor/agent read views. */
 export function scheduleRange(
-  db: MemoryDb,
+  db: Store,
   agentIds: string[],
   from: string,
   to: string,

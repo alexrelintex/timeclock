@@ -24,7 +24,8 @@ import {
   type PunchEventType,
 } from '@timeclock/core';
 import { drainTenant } from '@timeclock/hris';
-import { MemoryDb, localDateOf } from './db.js';
+import { localDateOf } from './db.js';
+import { createStore, type StoreDriver } from './store/index.js';
 import { seedDemo } from './seed.js';
 import { TenantAdapterRegistry } from './hris/registry.js';
 import { CONNECTORS, catalogList } from './hris/catalog.js';
@@ -64,10 +65,17 @@ const IDENTITY_SECRET = process.env.TIMECLOCK_IDENTITY_SECRET ?? 'dev-demo-secre
 const WEBHOOK_SECRET = process.env.TIMECLOCK_WEBHOOK_SECRET ?? 'dev-webhook-secret';
 const DEMO = process.env.NODE_ENV !== 'production';
 
-const db = new MemoryDb();
+const STORE_DRIVER = (process.env.STORE_DRIVER as StoreDriver) || 'memory';
+const db = createStore(STORE_DRIVER);
+// Durable drivers hydrate their in-memory projection from the backing store here,
+// before anything reads it (top-level await — the module finishes initializing
+// only once the store is warm). The memory driver has no init().
+await db.init?.();
 // Seed the demo tenant by default in dev; off in production unless SEED_DEMO=true.
+// Only auto-seed the volatile memory driver — never write demo rows through a
+// durable driver into a real database (seed a Postgres instance explicitly instead).
 const SEED = process.env.SEED_DEMO ? process.env.SEED_DEMO === 'true' : DEMO;
-if (SEED) seedDemo(db);
+if (SEED && STORE_DRIVER === 'memory') seedDemo(db);
 const registry = new TenantAdapterRegistry(db);
 const punch = new PunchService(db);
 // Forecast narration: Claude-backed when a key is configured, else deterministic.

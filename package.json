@@ -17,8 +17,10 @@
     "test": "tsx tests/smoke.test.ts",
     "test:scheduling": "tsx tests/scheduling.test.ts",
     "test:api": "tsx tests/api.test.ts",
+    "test:postgres": "tsx tests/postgres.test.ts",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
     "docker:build": "docker build -t timeclock:latest .",
     "docker:run": "docker run --rm -p 8787:8787 --env-file .env timeclock:latest"
   },
@@ -27,10 +29,12 @@
   "license": "ISC",
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "prisma": "^5.22.0",
     "typescript": "^5.7.2"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
+    "@prisma/client": "^5.22.0",
     "tsx": "^4.19.2"
   }
 }

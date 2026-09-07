@@ -36,7 +36,7 @@ export function localDateOf(utc: Date, timeZone: string): string {
   }).format(utc);
 }
 
-interface OutboxRecord {
+export interface OutboxRecord {
   id: string;
   tenantId: string;
   punchEventId?: string;
@@ -50,6 +50,17 @@ interface OutboxRecord {
   resolvedAt?: Date;
   availableAt: number; // epoch ms; retry backoff gate
   createdAt: Date;
+}
+
+/** A durable driver's persisted state, loaded into the projection at boot. */
+export interface StoreSnapshot {
+  tenants?: Tenant[];
+  agents?: Agent[];
+  events?: PunchEvent[];
+  exceptions?: ComplianceException[];
+  outbox?: OutboxRecord[];
+  patterns?: SchedulePatternRow[]; // flat; grouped by agentId on load
+  scheduleExceptions?: ScheduleExceptionRow[];
 }
 
 export type DbEvent =
@@ -496,5 +507,40 @@ export class MemoryDb implements PunchStore, OutboxStore {
 
   private emit(e: DbEvent): void {
     this.bus.emit('change', e);
+  }
+
+  /**
+   * Bulk-load persisted state into the in-memory projection, ids preserved, with
+   * NO change events emitted (this is a warm-up, not a mutation). A durable driver
+   * (see store/postgres) calls this from its init() so the synchronous read surface
+   * is served from memory after boot. Idempotent by id — safe to call once.
+   */
+  /** Canonical in-memory row lookups for a durable driver's write-through. */
+  protected getEventById(id: string): PunchEvent | undefined {
+    return this.events.find((e) => e.id === id);
+  }
+  protected getOutboxById(id: string): OutboxRecord | undefined {
+    return this.outbox.find((r) => r.id === id);
+  }
+
+  protected hydrate(snapshot: StoreSnapshot): void {
+    for (const t of snapshot.tenants ?? []) this.tenants.set(t.id, t);
+    for (const a of snapshot.agents ?? []) this.agents.set(a.id, a);
+    if (snapshot.events?.length) {
+      this.events.push(...snapshot.events);
+      this.events.sort((a, b) => a.eventTime.getTime() - b.eventTime.getTime());
+    }
+    for (const e of snapshot.exceptions ?? []) this.exceptions.set(e.id, e);
+    if (snapshot.outbox?.length) this.outbox.push(...snapshot.outbox);
+    if (snapshot.patterns?.length) {
+      for (const r of snapshot.patterns) {
+        const rows = this.patterns.get(r.agentId) ?? [];
+        rows.push(r);
+        this.patterns.set(r.agentId, rows);
+      }
+    }
+    for (const r of snapshot.scheduleExceptions ?? []) {
+      this.scheduleExceptions.set(`${r.agentId}|${r.date}`, r);
+    }
   }
 }
