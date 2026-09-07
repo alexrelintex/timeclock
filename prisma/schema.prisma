@@ -118,6 +118,8 @@ model Agent {
 
   punchEvents     PunchEvent[]
   exceptions      ComplianceException[]
+  schedulePatterns   SchedulePattern[]
+  scheduleExceptions ScheduleException[]
 
   @@unique([tenantId, hostUserId])
   @@index([tenantId, hrisEmployeeId])
@@ -194,4 +196,47 @@ model HrisOutbox {
 
   @@index([tenantId, status])
   @@index([trackingId])
+}
+
+enum ScheduleKind {
+  WORK
+  TRAINING
+  HOLIDAY
+  VACATION
+  PTO
+  SICK
+  LEAVE
+  OFF
+}
+
+// Repeating weekly schedule: one row per (agent, weekday). Wall-clock "HH:MM"
+// strings in the agent's own timezone; null start/end = a non-working day kind.
+model SchedulePattern {
+  id           String       @id @default(uuid())
+  agentId      String
+  agent        Agent        @relation(fields: [agentId], references: [id])
+  weekday      Int // 0 = Sunday .. 6 = Saturday
+  kind         ScheduleKind @default(WORK)
+  startTime    String?
+  endTime      String?
+  lunchTime    String?
+  lunchMinutes Int?
+
+  @@unique([agentId, weekday])
+}
+
+// Per-date override of the weekly pattern (one row per agent-local YYYY-MM-DD).
+model ScheduleException {
+  id           String       @id @default(uuid())
+  agentId      String
+  agent        Agent        @relation(fields: [agentId], references: [id])
+  date         String // YYYY-MM-DD, agent-local
+  kind         ScheduleKind
+  startTime    String?
+  endTime      String?
+  lunchTime    String?
+  lunchMinutes Int?
+  note         String?
+
+  @@unique([agentId, date])
 }

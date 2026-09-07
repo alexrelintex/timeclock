@@ -26,10 +26,10 @@ changes and reads stay fast. Durability is added at the edges:
   does not scale horizontally yet (same caveat the memory driver has). A second
   replica would not see the first's in-memory state until its own restart/hydration.
 - **Fire-and-forget directory writes.** A crash in the gap between the in-memory
-  mutation and the async Postgres write can drop a directory/exception change. The
-  punch/outbox path is transactional and not subject to this.
-- **Scheduler not persisted.** `schedule_pattern` / `schedule_exception` have no
-  Prisma model yet, so schedules remain in-memory. (Add models + hydration next.)
+  mutation and the async Postgres write can drop a directory/exception/schedule
+  change. The punch/outbox path is transactional and not subject to this. All
+  write-throughs run through a serial FIFO queue, so they never reorder (tenant
+  before agent before its events) — a foreign key is never violated by races.
 
 ## Setup
 

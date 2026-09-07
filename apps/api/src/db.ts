@@ -59,6 +59,8 @@ export interface StoreSnapshot {
   events?: PunchEvent[];
   exceptions?: ComplianceException[];
   outbox?: OutboxRecord[];
+  patterns?: SchedulePatternRow[]; // flat; grouped by agentId on load
+  scheduleExceptions?: ScheduleExceptionRow[];
 }
 
 export type DbEvent =
@@ -530,5 +532,15 @@ export class MemoryDb implements PunchStore, OutboxStore {
     }
     for (const e of snapshot.exceptions ?? []) this.exceptions.set(e.id, e);
     if (snapshot.outbox?.length) this.outbox.push(...snapshot.outbox);
+    if (snapshot.patterns?.length) {
+      for (const r of snapshot.patterns) {
+        const rows = this.patterns.get(r.agentId) ?? [];
+        rows.push(r);
+        this.patterns.set(r.agentId, rows);
+      }
+    }
+    for (const r of snapshot.scheduleExceptions ?? []) {
+      this.scheduleExceptions.set(`${r.agentId}|${r.date}`, r);
+    }
   }
 }

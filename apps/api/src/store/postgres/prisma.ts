@@ -10,10 +10,11 @@
  */
 import { createRequire } from 'node:module';
 
-/** Minimal delegate surface used by the driver (create/upsert/find/updateMany). */
+/** Minimal delegate surface used by the driver (create/upsert/find/update/delete). */
 export interface Delegate {
   findMany(args?: Record<string, unknown>): Promise<Record<string, any>[]>;
   create(args: { data: Record<string, unknown> }): Promise<{ id: string }>;
+  createMany(args: { data: Record<string, unknown>[] }): Promise<{ count: number }>;
   upsert(args: {
     where: Record<string, unknown>;
     create: Record<string, unknown>;
@@ -21,6 +22,7 @@ export interface Delegate {
   }): Promise<{ id: string }>;
   update(args: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<unknown>;
   updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<{ count: number }>;
+  deleteMany(args: { where: Record<string, unknown> }): Promise<{ count: number }>;
 }
 
 export interface PrismaClientLike {
@@ -29,6 +31,8 @@ export interface PrismaClientLike {
   punchEvent: Delegate;
   complianceException: Delegate;
   hrisOutbox: Delegate;
+  schedulePattern: Delegate;
+  scheduleException: Delegate;
   $transaction<T>(fn: (tx: PrismaClientLike) => Promise<T>): Promise<T>;
   $disconnect(): Promise<void>;
 }

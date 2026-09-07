@@ -21,6 +21,8 @@ import type {
   Agent,
   ComplianceException,
   PunchEvent,
+  SchedulePatternRow,
+  ScheduleExceptionRow,
   Tenant,
 } from '../../types.js';
 import type { Store } from '../contract.js';
@@ -41,12 +43,14 @@ export class PostgresStore extends MemoryDb implements Store {
   async init(): Promise<void> {
     this.prisma = loadPrismaClient();
     const p = this.prisma;
-    const [tenants, agents, events, exceptions, outbox] = await Promise.all([
+    const [tenants, agents, events, exceptions, outbox, patterns, schedExceptions] = await Promise.all([
       p.tenant.findMany(),
       p.agent.findMany(),
       p.punchEvent.findMany({ where: { status: 'ACTIVE' }, orderBy: { eventTime: 'asc' } }),
       p.complianceException.findMany(),
       p.hrisOutbox.findMany({ where: { status: { in: ['PENDING', 'SUBMITTED'] } } }),
+      p.schedulePattern.findMany(),
+      p.scheduleException.findMany(),
     ]);
     const snapshot: StoreSnapshot = {
       tenants: tenants.map(rowToTenant),
@@ -54,12 +58,14 @@ export class PostgresStore extends MemoryDb implements Store {
       events: events.map(rowToEvent),
       exceptions: exceptions.map(rowToException),
       outbox: outbox.map(rowToOutbox),
+      patterns: patterns.map(rowToPattern),
+      scheduleExceptions: schedExceptions.map(rowToScheduleException),
     };
     this.hydrate(snapshot);
     console.log(
       `[store:postgres] hydrated ${snapshot.tenants!.length} tenant(s), ` +
         `${snapshot.agents!.length} agent(s), ${snapshot.events!.length} open event(s), ` +
-        `${snapshot.outbox!.length} pending outbox row(s)`,
+        `${snapshot.outbox!.length} pending outbox row(s), ${snapshot.patterns!.length} schedule pattern row(s)`,
     );
   }
 
@@ -203,6 +209,38 @@ export class PostgresStore extends MemoryDb implements Store {
       }),
     );
     return e;
+  }
+
+  // ------------------------------------------------------------- scheduler
+  setPattern(agentId: string, rows: SchedulePatternRow[]): void {
+    super.setPattern(agentId, rows);
+    // setPattern REPLACES the agent's whole weekly pattern — mirror that as a
+    // delete-then-insert in one transaction.
+    const withAgent = rows.map((r) => ({ ...r, agentId }));
+    void this.persist('schedule.pattern', () =>
+      this.client().$transaction(async (tx) => {
+        await tx.schedulePattern.deleteMany({ where: { agentId } });
+        if (withAgent.length) await tx.schedulePattern.createMany({ data: withAgent.map(patternToRow) });
+      }),
+    );
+  }
+  setScheduleException(row: ScheduleExceptionRow): void {
+    super.setScheduleException(row);
+    const data = scheduleExceptionToRow(row);
+    void this.persist('schedule.exception', () =>
+      this.client().scheduleException.upsert({
+        where: { agentId_date: { agentId: row.agentId, date: row.date } },
+        create: data,
+        update: data,
+      }),
+    );
+  }
+  clearScheduleException(agentId: string, date: string): boolean {
+    const existed = super.clearScheduleException(agentId, date);
+    if (existed) void this.persist('schedule.exception.clear', () =>
+      this.client().scheduleException.deleteMany({ where: { agentId, date } }),
+    );
+    return existed;
   }
 
   // ---------------------------------------------------------------- helpers
@@ -362,6 +400,52 @@ function outboxToRow(r: OutboxRecord): Record<string, unknown> {
     submittedAt: r.submittedAt ?? null,
     resolvedAt: r.resolvedAt ?? null,
     createdAt: r.createdAt,
+  };
+}
+function patternToRow(r: SchedulePatternRow): Record<string, unknown> {
+  return {
+    agentId: r.agentId,
+    weekday: r.weekday,
+    kind: r.kind,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    lunchTime: r.lunchTime,
+    lunchMinutes: r.lunchMinutes,
+  };
+}
+function rowToPattern(r: Record<string, any>): SchedulePatternRow {
+  return {
+    agentId: r.agentId,
+    weekday: r.weekday,
+    kind: r.kind,
+    startTime: r.startTime ?? null,
+    endTime: r.endTime ?? null,
+    lunchTime: r.lunchTime ?? null,
+    lunchMinutes: r.lunchMinutes ?? null,
+  };
+}
+function scheduleExceptionToRow(r: ScheduleExceptionRow): Record<string, unknown> {
+  return {
+    agentId: r.agentId,
+    date: r.date,
+    kind: r.kind,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    lunchTime: r.lunchTime,
+    lunchMinutes: r.lunchMinutes,
+    note: r.note ?? null,
+  };
+}
+function rowToScheduleException(r: Record<string, any>): ScheduleExceptionRow {
+  return {
+    agentId: r.agentId,
+    date: r.date,
+    kind: r.kind,
+    startTime: r.startTime ?? null,
+    endTime: r.endTime ?? null,
+    lunchTime: r.lunchTime ?? null,
+    lunchMinutes: r.lunchMinutes ?? null,
+    note: r.note ?? undefined,
   };
 }
 function rowToOutbox(r: Record<string, any>): OutboxRecord {
