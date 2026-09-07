@@ -3,7 +3,10 @@
 // Retention target: >= 4 years (FLSA 29 CFR 516.5/516.6 + CA margin). Never hard-delete.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev; the debian target matches the node:22-slim (bookworm,
+  // OpenSSL 3.0) Docker runtime so the query engine loads there.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {

@@ -36,6 +36,14 @@ export interface Store extends PunchStore, OutboxStore {
    */
   init?(): Promise<void>;
 
+  /**
+   * Wait for all pending write-throughs to reach the backing store. Durable
+   * drivers persist directory/schedule mutations fire-and-forget for a synchronous
+   * API; a batch job or a graceful shutdown calls this so nothing in flight is lost
+   * on exit. The memory driver has nothing to flush.
+   */
+  flush?(): Promise<void>;
+
   // ---- directory: tenants
   upsertTenant(t: Tenant): Tenant;
   getTenant(id: string): Tenant | undefined;

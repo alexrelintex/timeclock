@@ -39,6 +39,25 @@ export class PostgresStore extends MemoryDb implements Store {
     return this.prisma;
   }
 
+  // Tracks in-flight punch ops (which enqueue their DB write only after an await, so
+  // the serial `tail` alone can't see them until then). flush() drains these too.
+  private pending = new Set<Promise<unknown>>();
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.pending.add(p);
+    void p.catch(() => {}).finally(() => this.pending.delete(p));
+    return p;
+  }
+
+  /** Wait for every queued write-through to finish (batch jobs / graceful shutdown). */
+  async flush(): Promise<void> {
+    // Draining in-flight ops can enqueue more onto the serial tail; a few passes
+    // settle both. Bounded so a persistent failure can't hang shutdown forever.
+    for (let i = 0; i < 5 && this.pending.size; i++) {
+      await Promise.allSettled([...this.pending]);
+    }
+    await this.tail;
+  }
+
   /** Connect + load the projection from Postgres. Awaited by the server pre-listen. */
   async init(): Promise<void> {
     this.prisma = loadPrismaClient();
@@ -114,7 +133,13 @@ export class PostgresStore extends MemoryDb implements Store {
     return id;
   }
 
-  async appendWithOutbox(args: Parameters<MemoryDb['appendWithOutbox']>[0]): Promise<string> {
+  appendWithOutbox(args: Parameters<MemoryDb['appendWithOutbox']>[0]): Promise<string> {
+    // Register the whole op as in-flight so flush()/shutdown wait for it even when a
+    // caller doesn't await the returned promise (e.g. a batch seed). Normal request
+    // handlers DO await it, so per-request durability is unchanged.
+    return this.track(this.doAppendWithOutbox(args));
+  }
+  private async doAppendWithOutbox(args: Parameters<MemoryDb['appendWithOutbox']>[0]): Promise<string> {
     this.inPunchTxn = true;
     let id: string;
     try {
