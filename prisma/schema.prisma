@@ -104,6 +104,7 @@ model Agent {
   managedDepartments String[] // departments a manager/supervisor oversees (empty = own)
   // Identity mapping (host CRM identity -> agent -> HRIS employee)
   hostUserId      String // asserted by host via signed JWT, verified server-side
+  email           String? // CRM<->Time-Clock connection key (normalized lowercase)
   hrisEmployeeId  String? // e.g. Paycor employee GUID; null until mapped
   hrisDepartmentId String? // provider-required write fields (Paycor: GUID)
   hrisActivityTypeId String?

@@ -92,6 +92,13 @@ export class PostgresStore extends MemoryDb implements Store {
     );
     return saved;
   }
+  linkHostUser(agentId: string, hostUserId: string, email?: string): Agent | undefined {
+    const a = super.linkHostUser(agentId, hostUserId, email);
+    if (a) void this.persist('agent.link', () =>
+      this.client().agent.update({ where: { id: agentId }, data: { hostUserId: a.hostUserId, email: a.email } }),
+    );
+    return a;
+  }
 
   // ------------------------------------------------------------- events
   appendEvent(args: Parameters<MemoryDb['appendEvent']>[0]): string {
@@ -206,12 +213,21 @@ export class PostgresStore extends MemoryDb implements Store {
   }
   private lastEnqueuedId?: string;
 
-  private async persist(label: string, op: () => Promise<unknown>): Promise<void> {
-    try {
-      await op();
-    } catch (err) {
-      console.error(`[store:postgres] write-through failed (${label}):`, err);
-    }
+  // Serial write queue: every write-through runs after the previous one settles,
+  // in call order. This preserves referential order the projection guarantees but a
+  // fire-and-forget write would otherwise race — tenant before agent, agent before
+  // its events/exceptions — so foreign keys are never violated by write reordering.
+  private tail: Promise<void> = Promise.resolve();
+  private persist(label: string, op: () => Promise<unknown>): Promise<void> {
+    const result = this.tail.then(() => op());
+    this.tail = result.then(
+      () => {},
+      () => {}, // a failed write must not break the chain for later writes
+    );
+    return result.then(
+      () => {},
+      (err) => console.error(`[store:postgres] write-through failed (${label}):`, err),
+    );
   }
 }
 
@@ -250,6 +266,7 @@ function rowToAgent(r: Record<string, any>): Agent {
     isSupervisor: r.isSupervisor,
     managedDepartments: r.managedDepartments ?? undefined,
     hostUserId: r.hostUserId,
+    email: r.email ?? null,
     hrisEmployeeId: r.hrisEmployeeId ?? null,
     hrisDepartmentId: r.hrisDepartmentId ?? null,
     hrisActivityTypeId: r.hrisActivityTypeId ?? null,

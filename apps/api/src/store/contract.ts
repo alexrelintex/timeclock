@@ -50,6 +50,10 @@ export interface Store extends PunchStore, OutboxStore {
   listAllAgents(tenantId: string): Agent[];
   agentByHostUserId(tenantId: string, hostUserId: string): Agent | undefined;
   agentByHrisEmployeeId(tenantId: string, hrisEmployeeId: string): Agent | undefined;
+  /** Identity resolution by email — the CRM<->Time-Clock connection key. */
+  agentByEmail(tenantId: string, email: string): Agent | undefined;
+  /** One-time "connect": bind a CRM hostUserId (+ email) to an existing agent. */
+  linkHostUser(agentId: string, hostUserId: string, email?: string): Agent | undefined;
   departments(tenantId: string): string[];
 
   // ---- punch events
