@@ -15,7 +15,7 @@ import {
 import { MockHrisAdapter } from './mockAdapter.js';
 import { PaycorTokenProvider } from './tokenProvider.js';
 import { GustoTokenProvider } from './gustoTokenProvider.js';
-import type { MemoryDb } from '../db.js';
+import type { Store } from '../store/contract.js';
 import type { Tenant } from '../types.js';
 
 export interface ConfigField {
@@ -29,7 +29,7 @@ export interface ConnectorInfo {
   syncsPunches: boolean;
   configFields: ConfigField[];
   /** Build the live adapter from the tenant's config, or null if not configured. */
-  build(tenant: Tenant, db: MemoryDb): HrisAdapter | null;
+  build(tenant: Tenant, db: Store): HrisAdapter | null;
 }
 
 const cfgOf = (t: Tenant): Record<string, unknown> => (t.hrisConfig ?? {}) as Record<string, unknown>;
@@ -127,7 +127,7 @@ export function catalogList() {
 }
 
 /** Resolve a tenant to its live adapter via the catalog. */
-export function buildAdapter(tenant: Tenant, db: MemoryDb): HrisAdapter | null {
+export function buildAdapter(tenant: Tenant, db: Store): HrisAdapter | null {
   const info = CONNECTORS[tenant.hrisProvider ?? 'none'] ?? CONNECTORS.none;
   return info.build(tenant, db);
 }

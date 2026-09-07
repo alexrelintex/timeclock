@@ -11,7 +11,7 @@
  * opens PENDING_APPROVAL for supervisor sign-off while the agent proceeds.
  */
 import { detectOrphans, projectShift } from '@timeclock/core';
-import type { MemoryDb } from './db.js';
+import type { Store } from './store/contract.js';
 import type { Agent, PunchEvent } from './types.js';
 
 export interface OrphanClockoutInfo {
@@ -23,7 +23,7 @@ export interface OrphanClockoutInfo {
 
 /** Returns orphan-IN info when the agent's open shift needs a clock-out correction. */
 export function pendingClockoutCorrection(
-  db: MemoryDb,
+  db: Store,
   agent: Agent,
   now: Date,
 ): OrphanClockoutInfo | null {
@@ -53,7 +53,7 @@ export interface ClockoutCorrectionResult {
 }
 
 export function resolveMissingClockout(
-  db: MemoryDb,
+  db: Store,
   agent: Agent,
   input: ClockoutCorrectionInput,
   now: Date = new Date(),

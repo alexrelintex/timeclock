@@ -7,12 +7,12 @@
  * leaves its events internal.
  */
 import type { AdapterRegistry, HrisAdapter } from '@timeclock/hris';
-import type { MemoryDb } from '../db.js';
+import type { Store } from '../store/contract.js';
 import { buildAdapter } from './catalog.js';
 
 export class TenantAdapterRegistry implements AdapterRegistry {
   private cache = new Map<string, HrisAdapter | null>();
-  constructor(private db: MemoryDb) {}
+  constructor(private db: Store) {}
 
   async forTenant(tenantId: string): Promise<HrisAdapter | null> {
     if (this.cache.has(tenantId)) return this.cache.get(tenantId)!;

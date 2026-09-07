@@ -20,7 +20,7 @@ import {
   type MealDeadlineState,
   type PunchEventType,
 } from '@timeclock/core';
-import type { MemoryDb } from './db.js';
+import type { Store } from './store/contract.js';
 import { rulesForState } from './stateRules.js';
 import type { Agent, ExceptionType, PunchEvent } from './types.js';
 
@@ -52,7 +52,7 @@ const MEAL_EXCEPTION: Record<'late' | 'short' | 'missed', ExceptionType> = {
 };
 
 export function evaluateAgentMeal(
-  db: MemoryDb,
+  db: Store,
   agent: Agent,
   now: Date,
 ): MealDeadlineState | null {
@@ -92,7 +92,7 @@ export function evaluateAgentMeal(
 }
 
 /** One sweep pass over every open shift in the system. */
-export function sweep(db: MemoryDb, now: Date = new Date()): void {
+export function sweep(db: Store, now: Date = new Date()): void {
   for (const tenant of db.listTenants()) {
     for (const agent of db.listAgents(tenant.id)) {
       const events = db.agentEvents(agent.id);

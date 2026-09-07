@@ -16,7 +16,7 @@ import {
 import { evaluateAgentMeal } from './compliance.js';
 import { pendingClockoutCorrection } from './orphanCorrection.js';
 import { rulesForState } from './stateRules.js';
-import type { MemoryDb } from './db.js';
+import type { Store } from './store/contract.js';
 import type { Agent, ComplianceException } from './types.js';
 
 const ACTIONS: PunchEventType[] = ['IN', 'OUT', 'BREAK_START', 'BREAK_END', 'LUNCH_START', 'LUNCH_END'];
@@ -50,7 +50,7 @@ export interface AgentView {
   } | null;
 }
 
-export function buildAgentView(db: MemoryDb, agent: Agent, now: Date): AgentView {
+export function buildAgentView(db: Store, agent: Agent, now: Date): AgentView {
   const events = db.agentEvents(agent.id);
   const proj = projectShift(events, now);
   const meal = evaluateAgentMeal(db, agent, now);
@@ -118,7 +118,7 @@ export interface SupervisorSnapshot {
 }
 
 export function buildSupervisorSnapshot(
-  db: MemoryDb,
+  db: Store,
   tenantId: string,
   now: Date,
   allowedDepartments?: string[] | null,
