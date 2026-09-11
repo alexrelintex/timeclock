@@ -47,6 +47,7 @@ import {
   type IdentityClaims,
 } from './identity.js';
 import { openSse, readBody, readJson, sendFile, sendJson, sendText } from './http.js';
+import { buildOpenApiSpec } from './openapi.js';
 import type { Agent, Role, ScheduleKindT, Tenant } from './types.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -495,6 +496,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return sendFile(res, resolve(PUBLIC, 'supervisor.html'), 'text/html; charset=utf-8');
   if (p === '/loader.js')
     return sendFile(res, resolve(REPO_ROOT, 'widget/loader.js'), 'text/javascript; charset=utf-8');
+  // OpenAPI: the integration contract (public) + a rendered reference.
+  if (p === '/openapi.json') return sendJson(res, 200, buildOpenApiSpec(VERSION));
+  if (p === '/docs') return sendFile(res, resolve(PUBLIC, 'docs.html'), 'text/html; charset=utf-8');
 
   // ---- demo helper: mint an identity token the way a host backend would.
   // Two shapes, mirroring how a real CRM backend would sign:
