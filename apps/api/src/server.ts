@@ -1332,7 +1332,14 @@ function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[shutdown] ${signal} received — closing server`);
-  server.close(() => {
+  server.close(async () => {
+    // Drain any in-flight durable write-throughs before exit (no lost punches on
+    // restart). No-op for the memory driver.
+    try {
+      await db.flush?.();
+    } catch (err) {
+      console.error('[shutdown] flush error', err);
+    }
     console.log('[shutdown] closed');
     process.exit(0);
   });
