@@ -80,6 +80,16 @@ async function main(): Promise<void> {
     console.assert(health.version === PKG.version, `healthz version ${health.version} is the package version ${PKG.version}`);
     console.assert(health.name === 'timeclock', 'healthz names the service');
 
+    // 1b. The OpenAPI integration contract is served, public, and well-formed.
+    const specRes = await fetch(`${base}/openapi.json`);
+    console.assert(specRes.status === 200 && (specRes.headers.get('content-type') ?? '').includes('application/json'), `GET /openapi.json → 200 JSON (got ${specRes.status})`);
+    const spec = await specRes.json() as { openapi?: string; info?: { version?: string }; paths?: Record<string, unknown> };
+    console.assert(spec.openapi === '3.1.0', `openapi is 3.1.0 (got ${spec.openapi})`);
+    console.assert(spec.info?.version === PKG.version, 'spec version tracks the package version');
+    const specPaths = Object.keys(spec.paths ?? {});
+    console.assert(specPaths.includes('/api/punch') && specPaths.includes('/webhooks/hris') && specPaths.includes('/api/me'), 'spec documents the core integration paths');
+    console.assert((await fetch(`${base}/docs`)).status === 200, 'GET /docs → 200 (reference UI)');
+
     // 2. Email is the host identity.
     const created = await admin('/api/supervisor/employees', {
       method: 'POST',
