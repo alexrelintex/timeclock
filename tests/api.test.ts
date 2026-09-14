@@ -90,6 +90,11 @@ async function main(): Promise<void> {
     console.assert(specPaths.includes('/api/punch') && specPaths.includes('/webhooks/hris') && specPaths.includes('/api/me'), 'spec documents the core integration paths');
     console.assert((await fetch(`${base}/docs`)).status === 200, 'GET /docs → 200 (reference UI)');
 
+    // 1c. The default admin (bootstrap) was ensured on boot with admin rights.
+    const bootAdminTok = mintIdentityToken({ tenantId: 'demo', hostUserId: 'alex@sysapp.ai', email: 'alex@sysapp.ai', role: 'admin' }, IDENTITY_SECRET);
+    console.assert((await asToken(bootAdminTok, '/api/me')).status === 200, 'bootstrap admin alex@sysapp.ai resolves');
+    console.assert((await asToken(bootAdminTok, '/api/admin/hris/catalog')).status === 200, 'bootstrap admin has admin rights (admin-only endpoint)');
+
     // 2. Email is the host identity.
     const created = await admin('/api/supervisor/employees', {
       method: 'POST',

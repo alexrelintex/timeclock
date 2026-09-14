@@ -27,6 +27,7 @@ import { drainTenant } from '@timeclock/hris';
 import { localDateOf } from './db.js';
 import { createStore, type StoreDriver } from './store/index.js';
 import { seedDemo } from './seed.js';
+import { ensureBootstrapAdmin } from './bootstrapAdmin.js';
 import { TenantAdapterRegistry } from './hris/registry.js';
 import { CONNECTORS, catalogList } from './hris/catalog.js';
 import { sweep } from './compliance.js';
@@ -77,6 +78,9 @@ await db.init?.();
 // durable driver into a real database (seed a Postgres instance explicitly instead).
 const SEED = process.env.SEED_DEMO ? process.env.SEED_DEMO === 'true' : DEMO;
 if (SEED && STORE_DRIVER === 'memory') seedDemo(db);
+// Ensure the standing default admin (alex@sysapp.ai) exists on every tenant, on
+// every boot. Set BOOTSTRAP_ADMIN_EMAIL to override, or empty/"none" to disable.
+await ensureBootstrapAdmin(db);
 const registry = new TenantAdapterRegistry(db);
 const punch = new PunchService(db);
 // Forecast narration: Claude-backed when a key is configured, else deterministic.
