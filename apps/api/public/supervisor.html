@@ -236,6 +236,24 @@
       const user = params.get('user') || 'u-sam';
       const tenant = params.get('tenant') || 'demo';
       const q = `?user=${encodeURIComponent(user)}&tenant=${encodeURIComponent(tenant)}`;
+
+      // Admin-link auth: a signed identity token may arrive in the URL fragment
+      // (#identity=<jwt>). Read it, scrub the fragment so it isn't left in history,
+      // and attach it as `Authorization: Bearer` on same-origin /api/ fetches. In
+      // production (no demo ?user= path) this is how the panel authenticates.
+      const identityToken = (location.hash.match(/[#&]identity=([^&]*)/) || [])[1];
+      if (identityToken) {
+        const token = decodeURIComponent(identityToken);
+        history.replaceState(null, '', location.pathname + location.search);
+        const _fetch = window.fetch.bind(window);
+        window.fetch = (input, init = {}) => {
+          const u = typeof input === 'string' ? input : (input && input.url) || '';
+          if (u.startsWith('/api/') || u.startsWith(location.origin + '/api/')) {
+            init = { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + token } };
+          }
+          return _fetch(input, init);
+        };
+      }
       const $ = (id) => document.getElementById(id);
       const _last = {};
       const setHTML = (id, html) => { if (_last[id] !== html) { _last[id] = html; $(id).innerHTML = html; } };
@@ -754,9 +772,20 @@
           '</tbody></table>';
       }
 
-      const es = new EventSource('/api/supervisor/stream' + q);
-      es.addEventListener('snapshot', (e) => { snap = JSON.parse(e.data); recvAt = Date.now(); render(); });
-      es.onerror = () => { $('clock').textContent = 'reconnecting…'; };
+      if (identityToken) {
+        // Token mode: EventSource can't send the Bearer header, so poll the
+        // (same) snapshot over authenticated fetch instead of streaming.
+        const pull = async () => {
+          try { const r = await fetch('/api/supervisor/snapshot' + q); if (r.ok) { snap = await r.json(); recvAt = Date.now(); render(); } }
+          catch { /* transient; next tick retries */ }
+        };
+        pull();
+        setInterval(pull, 5000);
+      } else {
+        const es = new EventSource('/api/supervisor/stream' + q);
+        es.addEventListener('snapshot', (e) => { snap = JSON.parse(e.data); recvAt = Date.now(); render(); });
+        es.onerror = () => { $('clock').textContent = 'reconnecting…'; };
+      }
       setInterval(render, 1000);
     </script>
   </body>
