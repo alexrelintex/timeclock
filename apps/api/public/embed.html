@@ -259,7 +259,28 @@
 
       const fmt = (ms) => { const neg=ms<0; ms=Math.abs(ms); const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return (neg?'-':'')+h+':'+String(m).padStart(2,'0'); };
       const fmtMS = (ms) => { const neg=ms<0; ms=Math.abs(ms); const s=Math.floor(ms/1000),m=Math.floor(s/60); return (neg?'-':'')+m+':'+String(s%60).padStart(2,'0'); };
-      const toLocalInput = (iso) => { const d=new Date(iso); const p=(n)=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+      // A datetime-local value is a wall clock with no zone attached, so both
+      // directions have to name one. It is the EMPLOYEE's zone, like every other
+      // time in this widget — a rep in Los Angeles whose laptop is on Eastern
+      // must not be shown 4:24 PM for a 1:24 PM Pacific shift, nor file one.
+      const wallPartsInTz = (d, tz) => {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }).formatToParts(d);
+        const g = (t) => (parts.find((x) => x.type === t) || {}).value;
+        return { y:+g('year'), mo:+g('month'), da:+g('day'), h:+g('hour') % 24, mi:+g('minute') };
+      };
+      const toLocalInput = (iso, tz) => { const w = wallPartsInTz(new Date(iso), tz); const p=(n)=>String(n).padStart(2,'0'); return `${w.y}-${p(w.mo)}-${p(w.da)}T${p(w.h)}:${p(w.mi)}`; };
+      // The instant a wall clock in `tz` names: guess it as UTC, ask what wall
+      // clock that guess lands on there, and correct by the difference. Exact
+      // except inside the hour a DST forward jump removes, which names no instant.
+      const fromLocalInput = (val, tz) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(val));
+        if (!m) return new Date(NaN);
+        const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+        const w = wallPartsInTz(new Date(guess), tz);
+        const landed = Date.UTC(w.y, w.mo - 1, w.da, w.h, w.mi);
+        return new Date(guess - (landed - guess));
+      };
+      const agentTz = () => (view && view.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
       // Wall-clock times render in the EMPLOYEE's own timezone, not the browser's.
       const inTz = (iso, tz) => new Date(iso).toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
       const tzOffset = (tz) => { try { const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(new Date()); return (p.find(x=>x.type==='timeZoneName')||{}).value || ''; } catch { return ''; } };
@@ -287,11 +308,11 @@
         const corr = view.clockoutCorrection;
         if (corr) {
           if ($('correct').classList.contains('hidden')) {
-            $('estTime').value = toLocalInput(corr.suggestedClockout);
+            $('estTime').value = toLocalInput(corr.suggestedClockout, agentTz());
           }
           $('correct').classList.remove('hidden');
           const hrs = Math.floor(corr.ageMs/3600000);
-          $('correctMsg').textContent = `Your shift from ${new Date(corr.shiftStart).toLocaleString()} is still open (${hrs}h). File the estimated clock-out and a reason before clocking in.`;
+          $('correctMsg').textContent = `Your shift from ${new Date(corr.shiftStart).toLocaleString('en-US', { timeZone: agentTz() })} is still open (${hrs}h). File the estimated clock-out and a reason before clocking in.`;
         } else {
           $('correct').classList.add('hidden');
         }
@@ -366,10 +387,17 @@
         const val = $('estTime').value, reason = $('reason').value.trim();
         if (!val) { $('correctErr').textContent='Enter an estimated clock-out time.'; return; }
         if (!reason) { $('correctErr').textContent='A reason is required.'; return; }
+        const estimated = fromLocalInput(val, agentTz());
+        if (Number.isNaN(estimated.getTime())) { $('correctErr').textContent='Enter an estimated clock-out time.'; return; }
         const res = await authed('/api/clockout-correction'+q(), {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ estimatedClockoutUtc: new Date(val).toISOString(), reason }),
+          body: JSON.stringify({ estimatedClockoutUtc: estimated.toISOString(), reason }),
         });
+        if (res.status === 401 && identityToken) {
+          identityToken = null; toHost('token-expired');
+          $('correctErr').textContent = 'Session expired — your reason is still here; file it again.';
+          return;
+        }
         const data = await res.json();
         if (!res.ok) { $('correctErr').textContent = data.error || 'error'; return; }
         view = data.view; view._recvAt = Date.now(); $('reason').value=''; render();
