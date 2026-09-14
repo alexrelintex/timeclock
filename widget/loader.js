@@ -31,18 +31,27 @@
  *   timeclock:punched              { type } after a successful punch (IN, OUT, …)
  *   timeclock:token-expired        mint a fresh identity JWT and call setIdentityToken
  *
- * CSP the host must allow:
- *   script-src  https://cdn.YOURAPP.com
- *   frame-src   https://widget.YOURAPP.com
+ * CSP the host must allow (use the widget instance origin — for a self-hosted
+ * instance loader + widget share one origin, e.g. http://localhost:8787):
+ *   script-src  <loader origin>
+ *   frame-src   <widget origin>
  */
 (function () {
   'use strict';
-  var WIDGET_ORIGIN = 'https://widget.YOURAPP.com'; // build-time substitution
   var PROTOCOL_VERSION = 1;
 
   var script = document.currentScript;
   var tenant = (script && script.getAttribute('data-tenant')) || '';
   if (!tenant) return console.error('[timeclock] missing data-tenant');
+
+  // Widget origin. Default: wherever THIS loader was served from — so a single
+  // self-hosted instance (loader + /embed on one origin) works with no config.
+  // Split deployments (a CDN serves the loader, a separate host serves the widget)
+  // set data-origin on the script tag. Placeholder is the last resort.
+  var WIDGET_ORIGIN =
+    (script && script.getAttribute('data-origin')) ||
+    (script && script.src && new URL(script.src, document.baseURI).origin) ||
+    'https://widget.YOURAPP.com';
 
   // Floating launcher button (Shadow DOM for style isolation; punch UI itself
   // lives in the iframe — the stronger boundary — never inline).
