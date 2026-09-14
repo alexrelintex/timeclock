@@ -489,7 +489,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const method = req.method ?? 'GET';
 
   // ---- static + health
-  if (p === '/healthz') return sendJson(res, 200, { ok: true, tenants: db.listTenants().length, version: VERSION, name: 'timeclock' });
+  // Health. `/health` and `/livez` are aliases because Google Front End swallows an
+  // external GET /healthz on *.run.app before it reaches the container (the path
+  // still works in-container / behind other proxies).
+  if (p === '/healthz' || p === '/health' || p === '/livez')
+    return sendJson(res, 200, { ok: true, tenants: db.listTenants().length, version: VERSION, name: 'timeclock' });
   if (p === '/' ) return sendFile(res, resolve(PUBLIC, 'index.html'), 'text/html; charset=utf-8');
   if (p === '/embed') return sendFile(res, resolve(PUBLIC, 'embed.html'), 'text/html; charset=utf-8');
   if (p === '/supervisor')
