@@ -30,6 +30,8 @@ jobs:
         run: npm run test:scheduling
       - name: HTTP contract tests (health, identity, history)
         run: npm run test:api
+      - name: HRIS token provider tests (Paycor)
+        run: npm run test:paycor
 
   postgres:
     name: Postgres migrate + driver

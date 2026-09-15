@@ -1,22 +1,26 @@
 /**
- * Injection point #1 — Paycor OAuth TokenProvider (activation flow).
+ * Injection point #1 — Paycor OAuth TokenProvider (AuthenticationSupport flow).
  *
- * Paycor uses OAuth2 with a refresh-token grant obtained during app activation
- * (Marketplace). We hold the refresh token per tenant and exchange it for a
- * short-lived access token, caching until ~60s before expiry. The exact token
- * endpoint + client credentials come from the activation record; they are
- * injected here so no secret is hard-coded.
+ * Paycor's OAuth lives under the AuthenticationSupport API: a refresh token
+ * (obtained once during Marketplace app activation via the authorization-code
+ * exchange) is POSTed as JSON to
+ *   {tokenUrl}  e.g. https://apis.paycor.com/v1/authenticationsupport/retrieveAccessTokenWithRefreshToken
+ * with the Ocp-Apim-Subscription-Key header, and Paycor returns a short-lived
+ * access token PLUS a NEW refresh token (single-use rotation). We cache the access
+ * token until ~60s before expiry and must persist the rotated refresh token —
+ * `onRotate` writes it back to the tenant's hrisConfig, or the next exchange fails.
  *
  * Implements @timeclock/hris TokenProvider: getAccessToken() / invalidate().
  */
 import type { TokenProvider } from '@timeclock/hris';
 
 export interface PaycorOAuthConfig {
-  tokenUrl: string; // e.g. https://apis.paycor.com/sts/v1/common/oauth2/token (confirm at activation)
+  /** Full AuthenticationSupport endpoint (retrieveAccessTokenWithRefreshToken). */
+  tokenUrl: string;
   clientId: string;
   clientSecret: string;
-  refreshToken: string; // obtained during Marketplace activation
-  subscriptionKey: string; // Ocp-Apim-Subscription-Key, also required on token call
+  refreshToken: string; // from Marketplace activation; rotates on every exchange
+  subscriptionKey: string; // Ocp-Apim-Subscription-Key
 }
 
 interface CachedToken {
@@ -30,6 +34,8 @@ export class PaycorTokenProvider implements TokenProvider {
 
   constructor(
     private cfg: PaycorOAuthConfig,
+    /** Persist the rotated (new) refresh token — Paycor invalidates the old one. */
+    private onRotate: (newRefreshToken: string) => void = () => {},
     private fetchImpl: typeof fetch = fetch,
     private now: () => number = () => Date.now(),
   ) {}
@@ -51,35 +57,42 @@ export class PaycorTokenProvider implements TokenProvider {
   }
 
   private async refresh(): Promise<string> {
-    const body = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: this.cfg.refreshToken,
-      client_id: this.cfg.clientId,
-      client_secret: this.cfg.clientSecret,
-    });
     const res = await this.fetchImpl(this.cfg.tokenUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
         'Ocp-Apim-Subscription-Key': this.cfg.subscriptionKey,
         Accept: 'application/json',
       },
-      body,
+      body: JSON.stringify({
+        clientId: this.cfg.clientId,
+        clientSecret: this.cfg.clientSecret,
+        refreshToken: this.cfg.refreshToken,
+      }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Paycor token refresh failed: HTTP ${res.status} ${text.slice(0, 300)}`);
     }
-    const json = (await res.json()) as {
-      access_token: string;
-      expires_in?: number;
-      refresh_token?: string;
-    };
-    // Paycor rotates refresh tokens; persist the new one if returned.
-    if (json.refresh_token) this.cfg.refreshToken = json.refresh_token;
-    const ttlMs = (json.expires_in ?? 3600) * 1000;
-    this.cached = { accessToken: json.access_token, expiresAtMs: this.now() + ttlMs };
-    return json.access_token;
+    const json = (await res.json()) as Record<string, unknown>;
+    // Paycor's token response has been seen both snake_case (OAuth-standard) and
+    // camelCase; accept either so a schema tweak doesn't silently break auth.
+    const accessToken = (json.access_token ?? json.accessToken) as string | undefined;
+    const newRefresh = (json.refresh_token ?? json.refreshToken) as string | undefined;
+    const expiresIn = (json.expires_in ?? json.expiresIn) as number | undefined;
+    if (!accessToken) {
+      throw new Error(`Paycor token refresh: no access token in response (${JSON.stringify(json).slice(0, 200)})`);
+    }
+    // Single-use rotation: persist the NEW refresh token or the next refresh fails.
+    if (newRefresh && newRefresh !== this.cfg.refreshToken) {
+      this.cfg.refreshToken = newRefresh;
+      this.onRotate(newRefresh);
+    }
+    // Paycor access tokens live ~30 min; trust the response's expires_in, and fall
+    // back to 30 min (not longer) so we never serve a token past its real expiry.
+    const ttlMs = (expiresIn ?? 1800) * 1000;
+    this.cached = { accessToken, expiresAtMs: this.now() + ttlMs };
+    return accessToken;
   }
 
   /** Expose the current refresh token so the caller can persist rotation. */
