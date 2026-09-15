@@ -59,22 +59,26 @@ export const CONNECTORS: Record<string, ConnectorInfo> = {
     configFields: [
       { key: 'legalEntityId', label: 'Legal entity ID' },
       { key: 'subscriptionKey', label: 'Ocp-Apim subscription key', secret: true },
-      { key: 'tokenUrl', label: 'OAuth token URL' },
+      { key: 'tokenUrl', label: 'AuthenticationSupport token URL (…/v1/authenticationsupport/retrieveAccessTokenWithRefreshToken)' },
       { key: 'clientId', label: 'Client ID' },
       { key: 'clientSecret', label: 'Client secret', secret: true },
       { key: 'refreshToken', label: 'Refresh token', secret: true },
       { key: 'mealPremiumEarningId', label: 'Meal-premium earning ID (optional)' },
     ],
-    build(tenant) {
+    build(tenant, db) {
       const c = cfgOf(tenant);
       if (!c.legalEntityId || !c.subscriptionKey || !c.refreshToken) return null;
-      const tokens = new PaycorTokenProvider({
-        tokenUrl: str(c.tokenUrl),
-        clientId: str(c.clientId),
-        clientSecret: str(c.clientSecret),
-        refreshToken: str(c.refreshToken),
-        subscriptionKey: str(c.subscriptionKey),
-      });
+      const tokens = new PaycorTokenProvider(
+        {
+          tokenUrl: str(c.tokenUrl),
+          clientId: str(c.clientId),
+          clientSecret: str(c.clientSecret),
+          refreshToken: str(c.refreshToken),
+          subscriptionKey: str(c.subscriptionKey),
+        },
+        // Paycor rotates the refresh token on every exchange — persist the new one.
+        (newRefresh) => db.updateTenantHrisConfig(tenant.id, { refreshToken: newRefresh }),
+      );
       const cfg: PaycorTenantConfig = {
         legalEntityId: Number(c.legalEntityId),
         subscriptionKey: str(c.subscriptionKey),
