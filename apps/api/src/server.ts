@@ -508,6 +508,65 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (p === '/openapi.json') return sendJson(res, 200, buildOpenApiSpec(VERSION));
   if (p === '/docs') return sendFile(res, resolve(PUBLIC, 'docs.html'), 'text/html; charset=utf-8');
 
+  // ---- Paycor OAuth activation callback (Approved Return OAuth URL).
+  // Paycor's App Activation flow redirects the admin here after approval with the
+  // one-time authorization code on the query string (?code=...). Paycor rejects
+  // ephemeral webhook domains and its own hosted clientredirect never surfaces the
+  // code, so we host a first-party return URL on our real domain. This endpoint
+  // does NOT exchange the code (that needs the client secret + PKCE verifier held
+  // by the operator running the exchange) — it just displays the code to copy, so
+  // no secret ever lives in the service. Register this exact URL (no query string)
+  // as the app's Approved Return OAuth URL:
+  //   https://clock.sysapp.ai/paycor/callback
+  if (p === '/paycor/callback') {
+    const code = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+    const errorDescription = url.searchParams.get('error_description');
+    const esc = (s: string): string =>
+      s.replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string),
+      );
+    if (error) {
+      const detail = errorDescription ? `: ${esc(errorDescription)}` : '';
+      return sendText(
+        res,
+        400,
+        `<!doctype html><meta charset="utf-8"><title>Paycor activation failed</title>` +
+          `<body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">` +
+          `<h1>Activation failed</h1><p>Paycor returned <code>${esc(error)}</code>${detail}.</p>` +
+          `<p>Nothing was captured. Re-run the authorization link.</p></body>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    if (!code) {
+      return sendText(
+        res,
+        400,
+        `<!doctype html><meta charset="utf-8"><title>Paycor callback</title>` +
+          `<body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">` +
+          `<h1>No authorization code</h1><p>This is the Paycor OAuth return URL. Reach it by ` +
+          `completing the Paycor App Activation authorization flow; the code arrives as ` +
+          `<code>?code=…</code>.</p></body>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    // Show the code for the operator to copy into the token exchange. It is single-
+    // use and short-lived; nothing is stored server-side.
+    return sendText(
+      res,
+      200,
+      `<!doctype html><meta charset="utf-8"><title>Paycor authorization code</title>` +
+        `<body style="font-family:system-ui;max-width:44rem;margin:3rem auto;padding:0 1rem">` +
+        `<h1>Authorization code captured</h1>` +
+        `<p>Copy this into your token exchange (single-use, expires in ~10 minutes):</p>` +
+        `<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;white-space:pre-wrap;` +
+        `word-break:break-all;user-select:all">${esc(code)}</pre>` +
+        `<p style="color:#666">Exchange it at <code>POST https://apis.paycor.com/sts/v1/common/token</code> ` +
+        `with your client secret and PKCE <code>code_verifier</code>. This page stores nothing.</p></body>`,
+      'text/html; charset=utf-8',
+    );
+  }
+
   // ---- demo helper: mint an identity token the way a host backend would.
   // Two shapes, mirroring how a real CRM backend would sign:
   //   ?user=<hostUserId>[&email=..]  — the CRM already knows Time-Clock's user id
