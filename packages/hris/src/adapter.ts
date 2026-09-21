@@ -64,6 +64,12 @@ export interface HrisEmployeeRef {
   displayName?: string;
   email?: string;
   employeeNumber?: string;
+  /** Raw HRIS employment status when the provider reports one (e.g. Paycor's
+   *  "Active" | "Terminated" | "Resigned" | "Retired" | …). For surfacing/logging. */
+  status?: string;
+  /** Derived: is this a currently-employed person? `false` for terminated/separated
+   *  employees the HRIS still returns. `undefined` when the provider doesn't say. */
+  active?: boolean;
 }
 
 /** Auth is injected: the token endpoint gets wired during the build. */

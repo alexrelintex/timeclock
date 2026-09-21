@@ -78,3 +78,37 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
+
+// -- listEmployees: employment status → active flag (terminated employees) --
+import { PaycorAdapter } from '../packages/hris/src/paycor/adapter';
+
+async function statusMain(): Promise<void> {
+  const tokens = { getAccessToken: async () => 'at', invalidate() {} };
+  const page = {
+    records: [
+      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active' } },
+      { employeeId: 'e-term', firstName: 'Ted', lastName: 'Term', statusData: { status: 'Terminated' } },
+      { employeeId: 'e-resigned', firstName: 'Rae', lastName: 'Quit', statusData: { status: 'Resigned' } },
+      { employeeId: 'e-datedterm', firstName: 'Dan', lastName: 'Dated', statusData: { status: 'Active' }, employmentDateData: { terminationDate: '2025-01-01T00:00:00Z' } },
+      { employeeId: 'e-unknown', firstName: 'Uma', lastName: 'Unknown' },
+    ],
+  };
+  const fetchImpl = (async () => res(200, page)) as unknown as AnyFetch;
+  const a = new PaycorAdapter(
+    { legalEntityId: 1, subscriptionKey: 'k', employeeWriteConfig: {} },
+    tokens,
+    fetchImpl,
+  );
+  const { items } = await a.listEmployees();
+  const by = Object.fromEntries(items.map((i) => [i.hrisEmployeeId, i]));
+  console.assert(by['e-active'].active === true, 'Active → active');
+  console.assert(by['e-term'].active === false, 'Terminated → inactive');
+  console.assert(by['e-resigned'].active === false, 'Resigned → inactive');
+  console.assert(by['e-datedterm'].active === false, 'termination date overrides Active → inactive');
+  console.assert(by['e-unknown'].active === undefined, 'no status → undefined (unknown)');
+  console.assert(by['e-term'].status === 'Terminated', 'raw status is surfaced');
+  console.log('paycor status: all assertions passed');
+  finish('paycor-status');
+}
+
+statusMain().catch((e) => { console.error(e); process.exit(1); });

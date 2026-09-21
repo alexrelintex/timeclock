@@ -88,15 +88,31 @@ export class PaycorAdapter implements HrisAdapter {
         lastName?: string;
         emailAddress?: string;
         employeeNumber?: string;
+        // Employment status lives under statusData.status (EmploymentStatus enum:
+        // Active | Terminated | Resigned | Retired | LaidOff | Deceased | leaves…),
+        // and a set terminationDate is authoritative that the person has separated.
+        statusData?: { status?: string } | null;
+        employmentDateData?: { terminationDate?: string | null } | null;
       }[];
       continuationToken?: string;
     };
-    const items: HrisEmployeeRef[] = (body.records ?? []).map((r) => ({
-      hrisEmployeeId: r.employeeId ?? r.id ?? '',
-      displayName: [r.firstName, r.lastName].filter(Boolean).join(' ') || undefined,
-      email: r.emailAddress,
-      employeeNumber: r.employeeNumber,
-    }));
+    const items: HrisEmployeeRef[] = (body.records ?? []).map((r) => {
+      const status = r.statusData?.status ?? undefined;
+      const terminated = Boolean(r.employmentDateData?.terminationDate);
+      // Only "Active" (and no termination date) counts as currently employed. Any
+      // other status — or a termination date — marks the person as separated so the
+      // pull can deactivate them instead of importing a terminated worker as active.
+      const active: boolean | undefined =
+        status !== undefined ? status === 'Active' && !terminated : terminated ? false : undefined;
+      return {
+        hrisEmployeeId: r.employeeId ?? r.id ?? '',
+        displayName: [r.firstName, r.lastName].filter(Boolean).join(' ') || undefined,
+        email: r.emailAddress,
+        employeeNumber: r.employeeNumber,
+        status,
+        active,
+      };
+    });
     return { items, nextCursor: body.continuationToken || undefined };
   }
 

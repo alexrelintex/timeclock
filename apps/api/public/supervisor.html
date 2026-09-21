@@ -511,7 +511,7 @@
             actions += ` <button class="rowbtn" data-active="${id}" data-to="0">Deactivate</button>`;
           }
           const tag = e.archived ? ' <span class="chip" style="background:#2a1c33;color:#d8b4fe">archived</span>'
-            : (!e.active ? ' <span class="chip" style="background:#3a1a1a;color:#fca5a5">inactive</span>' : '');
+            : (!e.active ? ` <span class="chip" style="background:#3a1a1a;color:#fca5a5">inactive${e.synced?' · HRIS':''}</span>` : '');
           let roleChip = '';
           if (e.role && e.role !== 'user') {
             const style = e.role==='admin' ? '#1d3a1f;color:#86efac' : e.role==='manager' ? '#1a2a45;color:#93c5fd' : '#12303a;color:#7dd3fc';
@@ -574,7 +574,8 @@
         $('empPullBtn').textContent = '⟲ Pull from HRIS';
         if (!res.ok) { $('empMeta').textContent = d.error; return; }
         await loadEmployees();
-        $('empMeta').textContent = `Pulled from ${d.provider}: ${d.created} new, ${d.skipped} already linked. ` + $('empMeta').textContent;
+        const sep = [d.deactivated ? `${d.deactivated} deactivated (terminated in HRIS)` : '', d.reactivated ? `${d.reactivated} reactivated` : ''].filter(Boolean).join(', ');
+        $('empMeta').textContent = `Pulled from ${d.provider}: ${d.created} new, ${d.linked} linked, ${d.skipped} unchanged${sep ? ', ' + sep : ''}. ` + $('empMeta').textContent;
       });
 
       $('empBody').addEventListener('click', async (e) => {
