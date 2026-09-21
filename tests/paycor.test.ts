@@ -93,13 +93,15 @@ async function statusMain(): Promise<void> {
       { employeeId: 'e-unknown', firstName: 'Uma', lastName: 'Unknown' },
     ],
   };
-  const fetchImpl = (async () => res(200, page)) as unknown as AnyFetch;
+  let calledUrl = '';
+  const fetchImpl = (async (u: string) => { calledUrl = u; return res(200, page); }) as unknown as AnyFetch;
   const a = new PaycorAdapter(
     { legalEntityId: 1, subscriptionKey: 'k', employeeWriteConfig: {} },
     tokens,
     fetchImpl,
   );
   const { items } = await a.listEmployees();
+  console.assert(/include=Status/.test(calledUrl) && /include=EmploymentDates/.test(calledUrl), 'requests include=Status&include=EmploymentDates (else Paycor returns null status)');
   const by = Object.fromEntries(items.map((i) => [i.hrisEmployeeId, i]));
   console.assert(by['e-active'].active === true, 'Active → active');
   console.assert(by['e-term'].active === false, 'Terminated → inactive');

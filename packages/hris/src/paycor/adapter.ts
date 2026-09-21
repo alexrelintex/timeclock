@@ -72,6 +72,12 @@ export class PaycorAdapter implements HrisAdapter {
     // NOTE: confirm the exact path/field names against the portal Guides before
     // production — this follows the documented PagedResult envelope shape.
     const params = new URLSearchParams({ take: '100' });
+    // The list projection returns statusData/employmentDateData as NULL unless we
+    // explicitly ask for them (verified live). `include` is a repeatable param
+    // (style=form, explode=true) → include=Status&include=EmploymentDates. Without
+    // it every employee comes back statusless and terminated workers look active.
+    params.append('include', 'Status');
+    params.append('include', 'EmploymentDates');
     if (cursor) params.set('continuationToken', cursor);
     const res = await this.request(
       'GET',
