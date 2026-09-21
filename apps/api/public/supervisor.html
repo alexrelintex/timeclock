@@ -577,8 +577,9 @@
         $('empPullBtn').textContent = '⟲ Pull from HRIS';
         if (!res.ok) { $('empMeta').textContent = d.error; return; }
         await loadEmployees();
-        const sep = [d.deactivated ? `${d.deactivated} deactivated (terminated in HRIS)` : '', d.reactivated ? `${d.reactivated} reactivated` : ''].filter(Boolean).join(', ');
-        $('empMeta').textContent = `Pulled from ${d.provider}: ${d.created} new, ${d.linked} linked, ${d.skipped} unchanged${sep ? ', ' + sep : ''}. ` + $('empMeta').textContent;
+        const sep = [d.deactivated ? `${d.deactivated} deactivated (terminated in HRIS)` : '', d.reactivated ? `${d.reactivated} reactivated` : '', d.emailsLinked ? `${d.emailsLinked} emails linked` : ''].filter(Boolean).join(', ');
+        const emailNote = (typeof d.withEmail === 'number' && typeof d.total === 'number') ? ` · ${d.withEmail}/${d.total} have email` : '';
+        $('empMeta').textContent = `Pulled from ${d.provider}: ${d.created} new, ${d.linked} linked, ${d.skipped} unchanged${sep ? ', ' + sep : ''}${emailNote}. ` + $('empMeta').textContent;
       });
 
       $('empBody').addEventListener('click', async (e) => {

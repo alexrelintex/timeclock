@@ -1131,28 +1131,53 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       let skipped = 0;
       let deactivated = 0; // employees the HRIS reports as terminated/separated
       let reactivated = 0; // rehired employees the HRIS reports Active again
+      let emailsLinked = 0; // existing employees backfilled with an HRIS email
+      let withEmail = 0; // of employees seen this pull, how many carried an email
+      let total = 0; // employees seen this pull (all pages)
       let cursor: string | undefined;
       const imported: { displayName: string; hrisEmployeeId: string; hostUserId: string; linked?: boolean }[] = [];
       do {
         const page = await adapter.listEmployees(cursor);
         for (const emp of page.items) {
+          total += 1;
+          if (normalizeEmail(emp.email)) withEmail += 1;
           // Paycor returns terminated/separated employees too; `emp.active === false`
           // marks them. Unknown (provider didn't report) is treated as active.
           const hrisActive = emp.active !== false;
           const already = db.agentByHrisEmployeeId(r.tenant.id, emp.hrisEmployeeId);
           if (already) {
-            // Already imported: reflect the current HRIS status. A person terminated
-            // in Paycor must not linger as active here; a rehire (Active again) is
-            // reactivated. Only the active flag is touched — nothing else is changed.
+            // Already imported: reflect current HRIS state onto the existing record.
+            const patch: Partial<Agent> = {};
+            let changed = false;
+            // Status: a person terminated in Paycor must not linger as active here;
+            // a rehire (Active again) is reactivated.
             if (!hrisActive && already.active) {
-              db.upsertAgent({ ...already, active: false, deactivatedAt: already.deactivatedAt ?? new Date() });
+              patch.active = false;
+              patch.deactivatedAt = already.deactivatedAt ?? new Date();
               deactivated += 1;
+              changed = true;
             } else if (hrisActive && !already.active && !already.archivedAt) {
-              db.upsertAgent({ ...already, active: true, deactivatedAt: null });
+              patch.active = true;
+              patch.deactivatedAt = null;
               reactivated += 1;
-            } else {
-              skipped += 1;
+              changed = true;
             }
+            // Email backfill: link to the CRM directory. Only fill an employee that
+            // has NO email yet (never overwrite one set manually or by the CRM), and
+            // only if no other agent already holds that address. Adopt the email as
+            // the host identity when the current hostUserId is a generated slug.
+            const em = normalizeEmail(emp.email);
+            if (em && !already.email) {
+              const holder = db.agentByHostUserId(r.tenant.id, em) ?? db.agentByEmail(r.tenant.id, em);
+              if (!holder || holder.id === already.id) {
+                patch.email = em;
+                if (!already.hostUserId.includes('@')) patch.hostUserId = em;
+                emailsLinked += 1;
+                changed = true;
+              }
+            }
+            if (changed) db.upsertAgent({ ...already, ...patch });
+            else skipped += 1;
             continue;
           }
           const name = emp.displayName || emp.employeeNumber || emp.hrisEmployeeId;
@@ -1209,7 +1234,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         }
         cursor = page.nextCursor;
       } while (cursor);
-      return sendJson(res, 200, { ok: true, created, linked, skipped, deactivated, reactivated, imported, provider: adapter.provider });
+      // Operational summary (no PII — counts only) so a pull's email/status flow is
+      // confirmable from the logs.
+      console.log(
+        `[pull-hris] tenant=${r.tenant.id} provider=${adapter.provider} total=${total} created=${created} linked=${linked} unchanged=${skipped} deactivated=${deactivated} reactivated=${reactivated} emailsLinked=${emailsLinked} withEmail=${withEmail}/${total}`,
+      );
+      return sendJson(res, 200, { ok: true, created, linked, skipped, deactivated, reactivated, emailsLinked, withEmail, total, imported, provider: adapter.provider });
     }
 
     // ---- run the 90-day archival policy on demand (same as the hourly job).
