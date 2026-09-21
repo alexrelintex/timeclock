@@ -242,18 +242,30 @@
       // and attach it as `Authorization: Bearer` on same-origin /api/ fetches. In
       // production (no demo ?user= path) this is how the panel authenticates.
       const identityToken = (location.hash.match(/[#&]identity=([^&]*)/) || [])[1];
-      if (identityToken) {
-        const token = decodeURIComponent(identityToken);
-        history.replaceState(null, '', location.pathname + location.search);
-        const _fetch = window.fetch.bind(window);
-        window.fetch = (input, init = {}) => {
-          const u = typeof input === 'string' ? input : (input && input.url) || '';
-          if (u.startsWith('/api/') || u.startsWith(location.origin + '/api/')) {
-            init = { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + token } };
+      const token = identityToken ? decodeURIComponent(identityToken) : null;
+      if (identityToken) history.replaceState(null, '', location.pathname + location.search);
+      // Silent re-mint: when the admin session expires, an /api/ call returns 401.
+      // Bounce to /supervisor/login — the httpOnly cookie set on first keyed entry
+      // lets it mint a fresh token and redirect back, with no key in the URL. A
+      // short guard prevents a redirect loop if no valid cookie is present.
+      const _fetch = window.fetch.bind(window);
+      window.fetch = async (input, init = {}) => {
+        const u = typeof input === 'string' ? input : (input && input.url) || '';
+        const isApi = u.startsWith('/api/') || u.startsWith(location.origin + '/api/');
+        if (isApi && token) {
+          init = { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + token } };
+        }
+        const res = await _fetch(input, init);
+        if (isApi && res.status === 401) {
+          const now = Date.now();
+          const last = +(sessionStorage.getItem('tc_relogin') || 0);
+          if (now - last > 15000) {
+            sessionStorage.setItem('tc_relogin', String(now));
+            location.href = '/supervisor/login?tenant=' + encodeURIComponent(tenant);
           }
-          return _fetch(input, init);
-        };
-      }
+        }
+        return res;
+      };
       const $ = (id) => document.getElementById(id);
       const _last = {};
       const setHTML = (id, html) => { if (_last[id] !== html) { _last[id] = html; $(id).innerHTML = html; } };
