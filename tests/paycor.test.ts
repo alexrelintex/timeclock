@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     console.assert(captured!.init.method === 'POST', 'uses POST');
     console.assert(h['Ocp-Apim-Subscription-Key'] === 'subkey', 'sends the Ocp-Apim-Subscription-Key header');
     console.assert(h['Content-Type'] === 'application/json', 'sends JSON');
-    console.assert(body.clientId === 'cid' && body.clientSecret === 'sec' && body.refreshToken === 'rt1', 'JSON body carries clientId/clientSecret/refreshToken');
+    console.assert(body.client_id === 'cid' && body.client_secret === 'sec' && body.refresh_token === 'rt1', 'JSON body carries snake_case client_id/client_secret/refresh_token');
     console.assert(rotated === 'rt2', 'persists the rotated refresh token via onRotate');
     console.assert(p.currentRefreshToken() === 'rt2', 'in-memory refresh token advanced to the rotated value');
   }

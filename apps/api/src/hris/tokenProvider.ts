@@ -64,10 +64,13 @@ export class PaycorTokenProvider implements TokenProvider {
         'Ocp-Apim-Subscription-Key': this.cfg.subscriptionKey,
         Accept: 'application/json',
       },
+      // Paycor's AuthenticationSupport endpoint takes JSON with snake_case keys
+      // (verified live: camelCase JSON → 400 "client_id/client_secret/refresh_token
+      // required"; form-encoded → 415). Response is read tolerantly below.
       body: JSON.stringify({
-        clientId: this.cfg.clientId,
-        clientSecret: this.cfg.clientSecret,
-        refreshToken: this.cfg.refreshToken,
+        client_id: this.cfg.clientId,
+        client_secret: this.cfg.clientSecret,
+        refresh_token: this.cfg.refreshToken,
       }),
     });
     if (!res.ok) {
