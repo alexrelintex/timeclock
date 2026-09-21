@@ -92,6 +92,9 @@ export class PaycorAdapter implements HrisAdapter {
         employeeId?: string;
         firstName?: string;
         lastName?: string;
+        // Paycor nests email as { type, emailAddress } (work email by default);
+        // the flat emailAddress is only a fallback for other response shapes.
+        email?: { emailAddress?: string | null } | null;
         emailAddress?: string;
         employeeNumber?: string;
         // Employment status lives under statusData.status (EmploymentStatus enum:
@@ -113,7 +116,7 @@ export class PaycorAdapter implements HrisAdapter {
       return {
         hrisEmployeeId: r.employeeId ?? r.id ?? '',
         displayName: [r.firstName, r.lastName].filter(Boolean).join(' ') || undefined,
-        email: r.emailAddress,
+        email: r.email?.emailAddress ?? r.emailAddress ?? undefined,
         employeeNumber: r.employeeNumber,
         status,
         active,
