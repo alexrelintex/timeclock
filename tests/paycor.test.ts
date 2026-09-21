@@ -86,7 +86,7 @@ async function statusMain(): Promise<void> {
   const tokens = { getAccessToken: async () => 'at', invalidate() {} };
   const page = {
     records: [
-      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active' }, email: { type: 'Work', emailAddress: 'ann@co.com' } },
+      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active' }, email: { type: 'Work', emailAddress: 'ann@co.com' }, department: { id: 'dept-1' }, workLocation: { state: 'tx' }, positionData: { jobTitle: 'Engineer', manager: { id: 'mgr-9' } } },
       { employeeId: 'e-term', firstName: 'Ted', lastName: 'Term', statusData: { status: 'Terminated' } },
       { employeeId: 'e-resigned', firstName: 'Rae', lastName: 'Quit', statusData: { status: 'Resigned' } },
       { employeeId: 'e-datedterm', firstName: 'Dan', lastName: 'Dated', statusData: { status: 'Active' }, employmentDateData: { terminationDate: '2025-01-01T00:00:00Z' } },
@@ -94,7 +94,11 @@ async function statusMain(): Promise<void> {
     ],
   };
   let calledUrl = '';
-  const fetchImpl = (async (u: string) => { calledUrl = u; return res(200, page); }) as unknown as AnyFetch;
+  const fetchImpl = (async (u: string) => {
+    calledUrl = u;
+    if (/\/departments/.test(u)) return res(200, { records: [{ id: 'dept-1', description: 'Engineering' }] });
+    return res(200, page);
+  }) as unknown as AnyFetch;
   const a = new PaycorAdapter(
     { legalEntityId: 1, subscriptionKey: 'k', employeeWriteConfig: {} },
     tokens,
@@ -102,6 +106,7 @@ async function statusMain(): Promise<void> {
   );
   const { items } = await a.listEmployees();
   console.assert(/include=Status/.test(calledUrl) && /include=EmploymentDates/.test(calledUrl), 'requests include=Status&include=EmploymentDates (else Paycor returns null status)');
+  console.assert(/include=WorkLocation/.test(calledUrl) && /include=Position/.test(calledUrl), 'requests include=WorkLocation&include=Position (dept-state/title/manager)');
   const by = Object.fromEntries(items.map((i) => [i.hrisEmployeeId, i]));
   console.assert(by['e-active'].active === true, 'Active → active');
   console.assert(by['e-term'].active === false, 'Terminated → inactive');
@@ -110,6 +115,10 @@ async function statusMain(): Promise<void> {
   console.assert(by['e-unknown'].active === undefined, 'no status → undefined (unknown)');
   console.assert(by['e-term'].status === 'Terminated', 'raw status is surfaced');
   console.assert(by['e-active'].email === 'ann@co.com', 'extracts nested email.emailAddress (CRM link key)');
+  console.assert(by['e-active'].department === 'Engineering', 'resolves department id → name');
+  console.assert(by['e-active'].locationState === 'TX', 'maps workLocation.state (upper-cased)');
+  console.assert(by['e-active'].title === 'Engineer', 'maps positionData.jobTitle');
+  console.assert(by['e-active'].managerId === 'mgr-9', 'maps positionData.manager.id');
   console.log('paycor status: all assertions passed');
   finish('paycor-status');
 }

@@ -78,7 +78,11 @@ export class PaycorAdapter implements HrisAdapter {
     // it every employee comes back statusless and terminated workers look active.
     params.append('include', 'Status');
     params.append('include', 'EmploymentDates');
+    params.append('include', 'WorkLocation'); // populates workLocation.state (else null)
+    params.append('include', 'Position'); // populates positionData.jobTitle + manager
     if (cursor) params.set('continuationToken', cursor);
+    // Department on the employee is only an id reference; resolve id → name once.
+    const deptMap = await this.departmentMap();
     const res = await this.request(
       'GET',
       `/v1/legalentities/${this.cfg.legalEntityId}/employees?${params}`,
@@ -102,6 +106,9 @@ export class PaycorAdapter implements HrisAdapter {
         // and a set terminationDate is authoritative that the person has separated.
         statusData?: { status?: string } | null;
         employmentDateData?: { terminationDate?: string | null } | null;
+        department?: { id?: string | null } | null;
+        workLocation?: { state?: string | null; name?: string | null } | null;
+        positionData?: { jobTitle?: string | null; manager?: { id?: string | null } | null } | null;
       }[];
       continuationToken?: string;
     };
@@ -113,6 +120,7 @@ export class PaycorAdapter implements HrisAdapter {
       // pull can deactivate them instead of importing a terminated worker as active.
       const active: boolean | undefined =
         status !== undefined ? status === 'Active' && !terminated : terminated ? false : undefined;
+      const deptId = r.department?.id ?? undefined;
       return {
         hrisEmployeeId: r.employeeId ?? r.id ?? '',
         displayName: [r.firstName, r.lastName].filter(Boolean).join(' ') || undefined,
@@ -120,9 +128,46 @@ export class PaycorAdapter implements HrisAdapter {
         employeeNumber: r.employeeNumber,
         status,
         active,
+        department: (deptId ? deptMap.get(deptId) : undefined) || undefined,
+        locationState: r.workLocation?.state ? r.workLocation.state.trim().toUpperCase() : undefined,
+        title: r.positionData?.jobTitle?.trim() || undefined,
+        managerId: r.positionData?.manager?.id ?? undefined,
       };
     });
     return { items, nextCursor: body.continuationToken || undefined };
+  }
+
+  /** Resolve legal-entity departments to an id → name map, fetched once and cached.
+   *  Best-effort: if the app lacks department access, returns an empty map and
+   *  callers fall back to their default department. */
+  private deptMap: Map<string, string> | null = null;
+  private async departmentMap(): Promise<Map<string, string>> {
+    if (this.deptMap) return this.deptMap;
+    const m = new Map<string, string>();
+    let cursor: string | undefined;
+    try {
+      do {
+        const params = new URLSearchParams({ take: '200' });
+        if (cursor) params.set('continuationToken', cursor);
+        const res = await this.request(
+          'GET',
+          `/v1/legalentities/${this.cfg.legalEntityId}/departments?${params}`,
+        );
+        if (!res.ok) break;
+        const body = (await res.json()) as {
+          records?: { id?: string; description?: string; code?: string }[];
+          continuationToken?: string;
+        };
+        for (const d of body.records ?? []) {
+          if (d.id) m.set(d.id, (d.description || d.code || '').trim());
+        }
+        cursor = body.continuationToken || undefined;
+      } while (cursor);
+    } catch {
+      // best-effort — leave whatever was collected
+    }
+    this.deptMap = m;
+    return m;
   }
 
   async readPunchPairs(
