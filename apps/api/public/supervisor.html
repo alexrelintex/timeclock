@@ -151,7 +151,9 @@
 
         <div class="wkeditor hidden" id="empForm">
           <div class="row">
-            <label>Name <input type="text" id="efName" placeholder="Full name" style="min-width:180px"></label>
+            <label>First <input type="text" id="efFirst" placeholder="First name" style="width:120px"></label>
+            <label>Last <input type="text" id="efLast" placeholder="Last name" style="width:130px"></label>
+            <label>Display <input type="text" id="efName" placeholder="Defaults to First Last" style="min-width:160px"></label>
             <label>Email <input type="email" id="efEmail" placeholder="name@company.com — links to CRM" style="min-width:220px"></label>
             <label>Dept <input type="text" id="efDept" value="Support" style="width:110px"></label>
             <label>State <input type="text" id="efState" value="CA" style="width:60px" maxlength="2"></label>
@@ -532,7 +534,9 @@
         <tr class="editrow hidden" data-editrow="${e.agentId}"><td colspan="6">
           <div class="wkeditor" style="margin-top:0">
             <div class="row">
-              <label>Name <input type="text" class="ee-name" value="${e.displayName.replace(/"/g,'&quot;')}" style="min-width:170px"></label>
+              <label>First <input type="text" class="ee-first" value="${(e.firstName||'').replace(/"/g,'&quot;')}" style="width:110px"></label>
+              <label>Last <input type="text" class="ee-last" value="${(e.lastName||'').replace(/"/g,'&quot;')}" style="width:120px"></label>
+              <label>Display <input type="text" class="ee-name" value="${e.displayName.replace(/"/g,'&quot;')}" style="min-width:150px"></label>
               <label>Email <input type="email" class="ee-email" data-orig="${(e.email||'').replace(/"/g,'&quot;')}" value="${(e.email||'').replace(/"/g,'&quot;')}" placeholder="links to CRM" style="min-width:200px"></label>
               <label>Dept <input type="text" class="ee-dept" value="${e.department}" style="width:110px"></label>
               <label>State <input type="text" class="ee-state" value="${e.locationState}" style="width:56px" maxlength="2"></label>
@@ -550,7 +554,9 @@
       $('efSave').addEventListener('click', async () => {
         $('efErr').textContent='';
         const body = {
-          displayName: $('efName').value.trim(),
+          firstName: $('efFirst').value.trim() || undefined,
+          lastName: $('efLast').value.trim() || undefined,
+          displayName: $('efName').value.trim() || [$('efFirst').value.trim(), $('efLast').value.trim()].filter(Boolean).join(' '),
           email: $('efEmail').value.trim() || undefined,
           department: $('efDept').value.trim(),
           locationState: $('efState').value.trim(),
@@ -561,11 +567,11 @@
           syncToHris: $('efSync').checked,
           hrisEmployeeId: $('efHris').value.trim() || undefined,
         };
-        if (!body.displayName) { $('efErr').textContent='Name is required.'; return; }
+        if (!body.displayName) { $('efErr').textContent='A first and last name, or a display name, is required.'; return; }
         const res = await fetch('/api/supervisor/employees' + q, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
         const d = await res.json();
         if (!res.ok) { $('efErr').textContent = d.error||'error'; return; }
-        $('efName').value=''; $('efEmail').value=''; $('efHris').value=''; $('efSync').checked=false; $('efHrisWrap').classList.add('hidden');
+        $('efName').value=''; $('efFirst').value=''; $('efLast').value=''; $('efEmail').value=''; $('efHris').value=''; $('efSync').checked=false; $('efHrisWrap').classList.add('hidden');
         $('empForm').classList.add('hidden');
         loadEmployees();
       });
@@ -614,6 +620,8 @@
           const row = document.querySelector(`tr[data-editrow="${save.dataset.save}"]`);
           const g = (cls) => row.querySelector('.'+cls);
           const body = {
+            firstName: g('ee-first').value.trim() || null,
+            lastName: g('ee-last').value.trim() || null,
             displayName: g('ee-name').value.trim(),
             department: g('ee-dept').value.trim(),
             locationState: g('ee-state').value.trim(),

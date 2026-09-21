@@ -62,6 +62,10 @@ export interface SubmissionResolution {
 export interface HrisEmployeeRef {
   hrisEmployeeId: string;
   displayName?: string;
+  /** Given / family name as the provider holds them, when it reports them
+   *  separately (Paycor does). `displayName` is their composition. */
+  firstName?: string;
+  lastName?: string;
   email?: string;
   employeeNumber?: string;
   /** Raw HRIS employment status when the provider reports one (e.g. Paycor's

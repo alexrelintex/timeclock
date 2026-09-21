@@ -39,6 +39,11 @@ export interface Agent {
   id: string;
   tenantId: string;
   displayName: string;
+  // Given and family name as the HRIS (or the person creating the record) gave
+  // them. Null when only a display name is known — never split out of it here;
+  // a consumer that needs a guess can make its own and say it did.
+  firstName?: string | null;
+  lastName?: string | null;
   department: string; // coverage is measured per department
   locationState: string; // USPS work-state code (CA, TX, …) → wage rules
   timezone: string;

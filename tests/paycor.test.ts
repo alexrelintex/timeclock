@@ -107,6 +107,8 @@ async function statusMain(): Promise<void> {
   const { items } = await a.listEmployees();
   console.assert(/include=Status/.test(calledUrl) && /include=EmploymentDates/.test(calledUrl), 'requests include=Status&include=EmploymentDates (else Paycor returns null status)');
   console.assert(/include=WorkLocation/.test(calledUrl) && /include=Position/.test(calledUrl), 'requests include=WorkLocation&include=Position (dept-state/title/manager)');
+  const ann = items.find((i) => i.hrisEmployeeId === 'e-active');
+  console.assert(ann?.firstName === 'Ann' && ann?.lastName === 'Active' && ann?.displayName === 'Ann Active', `first/last name ride along with the display name (got ${JSON.stringify(ann)})`);
   const by = Object.fromEntries(items.map((i) => [i.hrisEmployeeId, i]));
   console.assert(by['e-active'].active === true, 'Active → active');
   console.assert(by['e-term'].active === false, 'Terminated → inactive');

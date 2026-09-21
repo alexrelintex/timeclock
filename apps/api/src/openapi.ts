@@ -148,6 +148,8 @@ export function buildOpenApiSpec(version: string): Json {
           properties: {
             id: { type: 'string' },
             displayName: { type: 'string' },
+            firstName: { type: ['string', 'null'], description: 'Given name as the HRIS (or the creator) gave it; null when only a display name is known.' },
+            lastName: { type: ['string', 'null'], description: 'Family name, likewise.' },
             department: { type: 'string' },
             locationState: { type: 'string', description: 'USPS work-state code (CA, TX, …).' },
             timezone: { type: 'string' },
@@ -161,8 +163,11 @@ export function buildOpenApiSpec(version: string): Json {
         },
         EmployeeCreate: {
           type: 'object',
+          description: 'A displayName, or a firstName and lastName the display name is composed from, is required.',
           properties: {
             displayName: { type: 'string' },
+            firstName: { type: 'string' },
+            lastName: { type: 'string' },
             department: { type: 'string' },
             locationState: { type: 'string' },
             timezone: { type: 'string' },
@@ -171,7 +176,7 @@ export function buildOpenApiSpec(version: string): Json {
             hostUserId: { type: 'string' },
             email: { type: 'string', format: 'email' },
           },
-          required: ['displayName', 'department'],
+          required: ['department'],
         },
         HrisConfig: {
           type: 'object',

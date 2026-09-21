@@ -126,6 +126,35 @@ async function main(): Promise<void> {
     console.assert(noEmailBody.hostUserId.startsWith('u-slug-person'), `without an email the id is still a slug (got ${noEmailBody.hostUserId})`);
     console.assert(noEmailBody.email === null, 'no email stored when none given');
 
+    // 2b. First and last name are carried, and compose the display name when
+    //     none is given; a record made with a display name alone has no names
+    //     (nothing is guessed from a split).
+    const named = await admin('/api/supervisor/employees', {
+      method: 'POST',
+      body: JSON.stringify({ firstName: ' Ada ', lastName: 'Lovelace', department: 'Support', email: 'ada.lovelace@acme.example' }),
+    });
+    console.assert(named.status === 200, `create from first+last → 200 (got ${named.status})`);
+    const namedBody = await named.json() as { agentId: string };
+    type RosterRow = { agentId: string; displayName: string; firstName: string | null; lastName: string | null; email: string | null; hrisEmployeeId: string | null };
+    const rosterNamed = await (await admin('/api/supervisor/employees')).json() as { employees: RosterRow[] };
+    const ada = rosterNamed.employees.find((e) => e.agentId === namedBody.agentId);
+    console.assert(ada?.firstName === 'Ada' && ada?.lastName === 'Lovelace', `first and last name come back trimmed (got ${ada?.firstName} / ${ada?.lastName})`);
+    console.assert(ada?.displayName === 'Ada Lovelace', `display name composed from them (got ${ada?.displayName})`);
+    const slug = rosterNamed.employees.find((e) => e.agentId === (noEmailBody as { agentId?: string }).agentId);
+    console.assert(slug === undefined || (slug.firstName === null && slug.lastName === null), 'a display-name-only record carries no first/last name');
+    const noName = await admin('/api/supervisor/employees', { method: 'POST', body: JSON.stringify({ department: 'Support' }) });
+    console.assert(noName.status === 400, `neither name → 400 (got ${noName.status})`);
+    // Editing the names recomposes the display name; sending one explicitly wins.
+    const renamed = await admin(`/api/supervisor/employees/${namedBody.agentId}`, { method: 'POST', body: JSON.stringify({ lastName: 'King' }) });
+    console.assert(renamed.status === 200, `edit last name → 200 (got ${renamed.status})`);
+    const rosterRenamed = await (await admin('/api/supervisor/employees')).json() as { employees: RosterRow[] };
+    const adaKing = rosterRenamed.employees.find((e) => e.agentId === namedBody.agentId);
+    console.assert(adaKing?.lastName === 'King' && adaKing?.displayName === 'Ada King', `display name follows the edited names (got ${adaKing?.displayName})`);
+    await admin(`/api/supervisor/employees/${namedBody.agentId}`, { method: 'POST', body: JSON.stringify({ displayName: 'Countess', firstName: 'Augusta' }) });
+    const rosterCountess = await (await admin('/api/supervisor/employees')).json() as { employees: RosterRow[] };
+    const countess = rosterCountess.employees.find((e) => e.agentId === namedBody.agentId);
+    console.assert(countess?.displayName === 'Countess' && countess?.firstName === 'Augusta' && countess?.lastName === 'King', 'an explicit display name is kept beside the names');
+
     // 3. A host-minted token whose sub is the email resolves the person, whatever the case.
     const minted = await (await fetch(`${base}/api/dev/token?user=${encodeURIComponent('CASEY.HOSTMAPPED@acme.example')}`)).json() as { token?: string; error?: string };
     console.assert(typeof minted.token === 'string', `token minted for the email regardless of case (${minted.error ?? 'ok'})`);
@@ -184,8 +213,17 @@ async function main(): Promise<void> {
     console.assert(pulledBody.imported.every((i) => i.hostUserId.includes('@')), `imported employees are keyed on email (${pulledBody.imported.map((i) => i.hostUserId).join(', ')})`);
     const lenaPull = pulledBody.imported.find((i) => i.hostUserId === LENA);
     console.assert(pulledBody.linked >= 1 && lenaPull?.linked === true, 'the roster entry matching an existing email was bound, not imported again');
-    const rosterFinal = await (await admin('/api/supervisor/employees')).json() as { employees: Array<{ email: string | null }> };
+    const rosterFinal = await (await admin('/api/supervisor/employees')).json() as { employees: RosterRow[] };
     console.assert(rosterFinal.employees.filter((e) => e.email === LENA).length === 1, 'still exactly one Lena after the pull');
+    // 8. The HRIS names ride along: imported people carry first and last name,
+    //    and the one bound to an existing record got hers filled in from the HRIS.
+    const grace = rosterFinal.employees.find((e) => e.hrisEmployeeId === 'pc-1001');
+    console.assert(grace?.firstName === 'Grace' && grace?.lastName === 'Okafor' && grace?.displayName === 'Grace Okafor', `pulled employee carries the HRIS first/last name (got ${grace?.firstName} / ${grace?.lastName})`);
+    const lenaRow = rosterFinal.employees.find((e) => e.email === LENA);
+    console.assert(lenaRow?.firstName === 'Lena' && lenaRow?.lastName === 'Fischer', `linked employee took the HRIS names (got ${lenaRow?.firstName} / ${lenaRow?.lastName})`);
+    // A second pull changes nothing about them (idempotent), and reports them skipped.
+    const again = await (await admin('/api/supervisor/employees/pull-hris', { method: 'POST', body: JSON.stringify({ department: 'Support' }) })).json() as { created: number; skipped: number };
+    console.assert(again.created === 0 && again.skipped >= 4, `second pull imports nobody (created ${again.created}, skipped ${again.skipped})`);
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => setTimeout(r, 200));
