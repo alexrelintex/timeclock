@@ -13,7 +13,7 @@
  * With the demo tenant (no HRIS configured) everything runs credential-free.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -487,6 +487,15 @@ const VALID_PUNCH: ReadonlySet<string> = new Set<PunchEventType>([
   'LUNCH_END',
 ]);
 
+function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (header ?? '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   const p = url.pathname;
@@ -502,6 +511,42 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (p === '/embed') return sendFile(res, resolve(PUBLIC, 'embed.html'), 'text/html; charset=utf-8');
   if (p === '/supervisor')
     return sendFile(res, resolve(PUBLIC, 'supervisor.html'), 'text/html; charset=utf-8');
+  // Admin click-through login. Mints a fresh short-lived admin identity token and
+  // redirects into /supervisor, so the panel is reachable by a bookmark instead of
+  // hand-minting a JWT. Disabled unless ADMIN_LOGIN_KEY is set. The key arrives in
+  // ?k= the first time (then stored in an httpOnly cookie) or from that cookie on
+  // later re-mints (including the page's silent refresh when a session expires).
+  if (p === '/supervisor/login') {
+    const configured = process.env.ADMIN_LOGIN_KEY;
+    if (!configured) return sendText(res, 404, 'not found');
+    const cookies = parseCookies(req.headers.cookie);
+    const fromQuery = url.searchParams.get('k');
+    const provided = fromQuery ?? cookies['tc_admin'] ?? '';
+    const a = Buffer.from(provided);
+    const b = Buffer.from(configured);
+    const ok = a.length === b.length && timingSafeEqual(a, b);
+    if (!ok) return sendText(res, 401, 'unauthorized — append ?k=<admin login key> once to set the session');
+    const tenantId = url.searchParams.get('tenant') ?? 'demo';
+    const email =
+      normalizeEmail(process.env.BOOTSTRAP_ADMIN_EMAIL ?? 'alex@sysapp.ai') ?? 'alex@sysapp.ai';
+    const token = mintIdentityToken(
+      { tenantId, hostUserId: email, email, displayName: 'Admin', role: 'admin', ttlSeconds: 3600 },
+      IDENTITY_SECRET,
+    );
+    const headers: Record<string, string> = {
+      Location: `/supervisor#identity=${encodeURIComponent(token)}`,
+      'Cache-Control': 'no-store',
+    };
+    // On the keyed entry, remember the key in an httpOnly cookie so future re-mints
+    // (and the page's silent 401 refresh) need no key in the URL.
+    if (fromQuery) {
+      headers['Set-Cookie'] =
+        `tc_admin=${encodeURIComponent(configured)}; Path=/supervisor; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`;
+    }
+    res.writeHead(302, headers);
+    res.end();
+    return;
+  }
   if (p === '/loader.js')
     return sendFile(res, resolve(REPO_ROOT, 'widget/loader.js'), 'text/javascript; charset=utf-8');
   // OpenAPI: the integration contract (public) + a rendered reference.
