@@ -34,6 +34,12 @@ export interface ConnectorInfo {
 
 const cfgOf = (t: Tenant): Record<string, unknown> => (t.hrisConfig ?? {}) as Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+// Opaque credentials (ids, keys, tokens) never legitimately contain whitespace,
+// but pasting a long value into an admin form often introduces a leading/trailing
+// space or a line-break mid-value. Paycor rejects those ("refresh_token contains
+// white space"), so strip ALL whitespace from these fields at build time — this
+// also heals a value already saved with a stray space, without re-entry.
+const opaque = (v: unknown): string => str(v).replace(/\s+/g, '');
 
 export const CONNECTORS: Record<string, ConnectorInfo> = {
   none: {
@@ -70,18 +76,18 @@ export const CONNECTORS: Record<string, ConnectorInfo> = {
       if (!c.legalEntityId || !c.subscriptionKey || !c.refreshToken) return null;
       const tokens = new PaycorTokenProvider(
         {
-          tokenUrl: str(c.tokenUrl),
-          clientId: str(c.clientId),
-          clientSecret: str(c.clientSecret),
-          refreshToken: str(c.refreshToken),
-          subscriptionKey: str(c.subscriptionKey),
+          tokenUrl: str(c.tokenUrl).trim(),
+          clientId: opaque(c.clientId),
+          clientSecret: str(c.clientSecret).trim(),
+          refreshToken: opaque(c.refreshToken),
+          subscriptionKey: opaque(c.subscriptionKey),
         },
         // Paycor rotates the refresh token on every exchange — persist the new one.
         (newRefresh) => db.updateTenantHrisConfig(tenant.id, { refreshToken: newRefresh }),
       );
       const cfg: PaycorTenantConfig = {
         legalEntityId: Number(c.legalEntityId),
-        subscriptionKey: str(c.subscriptionKey),
+        subscriptionKey: opaque(c.subscriptionKey),
         employeeWriteConfig: (c.employeeWriteConfig as PaycorTenantConfig['employeeWriteConfig']) ?? {},
         ...(c.mealPremiumEarningId ? { mealPremiumEarningId: str(c.mealPremiumEarningId) } : {}),
       };
