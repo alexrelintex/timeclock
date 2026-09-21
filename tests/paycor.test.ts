@@ -86,7 +86,7 @@ async function statusMain(): Promise<void> {
   const tokens = { getAccessToken: async () => 'at', invalidate() {} };
   const page = {
     records: [
-      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active' } },
+      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active' }, email: { type: 'Work', emailAddress: 'ann@co.com' } },
       { employeeId: 'e-term', firstName: 'Ted', lastName: 'Term', statusData: { status: 'Terminated' } },
       { employeeId: 'e-resigned', firstName: 'Rae', lastName: 'Quit', statusData: { status: 'Resigned' } },
       { employeeId: 'e-datedterm', firstName: 'Dan', lastName: 'Dated', statusData: { status: 'Active' }, employmentDateData: { terminationDate: '2025-01-01T00:00:00Z' } },
@@ -109,6 +109,7 @@ async function statusMain(): Promise<void> {
   console.assert(by['e-datedterm'].active === false, 'termination date overrides Active → inactive');
   console.assert(by['e-unknown'].active === undefined, 'no status → undefined (unknown)');
   console.assert(by['e-term'].status === 'Terminated', 'raw status is surfaced');
+  console.assert(by['e-active'].email === 'ann@co.com', 'extracts nested email.emailAddress (CRM link key)');
   console.log('paycor status: all assertions passed');
   finish('paycor-status');
 }

@@ -152,6 +152,7 @@
         <div class="wkeditor hidden" id="empForm">
           <div class="row">
             <label>Name <input type="text" id="efName" placeholder="Full name" style="min-width:180px"></label>
+            <label>Email <input type="email" id="efEmail" placeholder="name@company.com — links to CRM" style="min-width:220px"></label>
             <label>Dept <input type="text" id="efDept" value="Support" style="width:110px"></label>
             <label>State <input type="text" id="efState" value="CA" style="width:60px" maxlength="2"></label>
             <label>Timezone <select id="efTz" style="width:210px"></select></label>
@@ -521,7 +522,7 @@
             roleChip = ` <span class="chip" style="background:${style}">${e.role}${scope?' · '+scope:''}</span>`;
           }
           return `<tr style="${e.active?'':'opacity:.55'}">
-          <td>${e.displayName}${roleChip}${tag}</td>
+          <td>${e.displayName}${roleChip}${tag}<div class="muted" style="font-size:11px">${e.email ? e.email : '<span style="color:#fca5a5">no email · not linked to CRM</span>'}</div></td>
           <td><span class="chip">${e.department}</span></td>
           <td><span class="chip">${e.locationState}</span></td>
           <td class="muted">${e.timezone}</td>
@@ -532,6 +533,7 @@
           <div class="wkeditor" style="margin-top:0">
             <div class="row">
               <label>Name <input type="text" class="ee-name" value="${e.displayName.replace(/"/g,'&quot;')}" style="min-width:170px"></label>
+              <label>Email <input type="email" class="ee-email" data-orig="${(e.email||'').replace(/"/g,'&quot;')}" value="${(e.email||'').replace(/"/g,'&quot;')}" placeholder="links to CRM" style="min-width:200px"></label>
               <label>Dept <input type="text" class="ee-dept" value="${e.department}" style="width:110px"></label>
               <label>State <input type="text" class="ee-state" value="${e.locationState}" style="width:56px" maxlength="2"></label>
               <label>Timezone <select class="ee-tz" style="width:210px">${tzOptionsHTML(e.timezone)}</select></label>
@@ -549,6 +551,7 @@
         $('efErr').textContent='';
         const body = {
           displayName: $('efName').value.trim(),
+          email: $('efEmail').value.trim() || undefined,
           department: $('efDept').value.trim(),
           locationState: $('efState').value.trim(),
           timezone: $('efTz').value.trim(),
@@ -562,7 +565,7 @@
         const res = await fetch('/api/supervisor/employees' + q, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
         const d = await res.json();
         if (!res.ok) { $('efErr').textContent = d.error||'error'; return; }
-        $('efName').value=''; $('efHris').value=''; $('efSync').checked=false; $('efHrisWrap').classList.add('hidden');
+        $('efName').value=''; $('efEmail').value=''; $('efHris').value=''; $('efSync').checked=false; $('efHrisWrap').classList.add('hidden');
         $('empForm').classList.add('hidden');
         loadEmployees();
       });
@@ -619,6 +622,11 @@
             body.role = g('ee-role').value;
             const depts = g('ee-depts') ? g('ee-depts').value.split(',').map(s=>s.trim()).filter(Boolean) : [];
             if (['manager','supervisor'].includes(body.role) && depts.length) body.managedDepartments = depts;
+          }
+          // Only send email when it actually changed — sending it always would let a
+          // blank field wipe an existing CRM link. Empty-when-changed clears it.
+          if (g('ee-email') && g('ee-email').value.trim() !== (g('ee-email').dataset.orig || '')) {
+            body.email = g('ee-email').value.trim();
           }
 
           if (!body.displayName) { row.querySelector('.ee-err').textContent = 'Name required.'; return; }
