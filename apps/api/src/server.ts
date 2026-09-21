@@ -1129,13 +1129,30 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       let created = 0;
       let linked = 0;
       let skipped = 0;
+      let deactivated = 0; // employees the HRIS reports as terminated/separated
+      let reactivated = 0; // rehired employees the HRIS reports Active again
       let cursor: string | undefined;
       const imported: { displayName: string; hrisEmployeeId: string; hostUserId: string; linked?: boolean }[] = [];
       do {
         const page = await adapter.listEmployees(cursor);
         for (const emp of page.items) {
-          if (db.agentByHrisEmployeeId(r.tenant.id, emp.hrisEmployeeId)) {
-            skipped += 1;
+          // Paycor returns terminated/separated employees too; `emp.active === false`
+          // marks them. Unknown (provider didn't report) is treated as active.
+          const hrisActive = emp.active !== false;
+          const already = db.agentByHrisEmployeeId(r.tenant.id, emp.hrisEmployeeId);
+          if (already) {
+            // Already imported: reflect the current HRIS status. A person terminated
+            // in Paycor must not linger as active here; a rehire (Active again) is
+            // reactivated. Only the active flag is touched — nothing else is changed.
+            if (!hrisActive && already.active) {
+              db.upsertAgent({ ...already, active: false, deactivatedAt: already.deactivatedAt ?? new Date() });
+              deactivated += 1;
+            } else if (hrisActive && !already.active && !already.archivedAt) {
+              db.upsertAgent({ ...already, active: true, deactivatedAt: null });
+              reactivated += 1;
+            } else {
+              skipped += 1;
+            }
             continue;
           }
           const name = emp.displayName || emp.employeeNumber || emp.hrisEmployeeId;
@@ -1153,10 +1170,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               email: existing.email ?? email ?? null,
               hostUserId: existing.hostUserId || email!,
               hrisEmployeeId: emp.hrisEmployeeId,
+              // A terminated employee is linked but deactivated, never made active.
+              ...(hrisActive ? {} : { active: false, deactivatedAt: existing.deactivatedAt ?? new Date() }),
             };
             db.upsertAgent(bound);
             imported.push({ displayName: bound.displayName, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: bound.hostUserId, linked: true });
             linked += 1;
+            if (!hrisActive) deactivated += 1;
             continue;
           }
           // The HRIS knows the email; that is the host identity, so an employee
@@ -1178,14 +1198,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             hrisDepartmentId: null,
             hrisActivityTypeId: null,
             mealWaiverOnFile: false,
-            active: true,
+            // A terminated employee Paycor still returns is imported but inactive,
+            // so they are visible with their status rather than counted as working.
+            active: hrisActive,
+            deactivatedAt: hrisActive ? null : new Date(),
           });
           imported.push({ displayName: name, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: pulledIdentity.hostUserId });
           created += 1;
+          if (!hrisActive) deactivated += 1;
         }
         cursor = page.nextCursor;
       } while (cursor);
-      return sendJson(res, 200, { ok: true, created, linked, skipped, imported, provider: adapter.provider });
+      return sendJson(res, 200, { ok: true, created, linked, skipped, deactivated, reactivated, imported, provider: adapter.provider });
     }
 
     // ---- run the 90-day archival policy on demand (same as the hourly job).
