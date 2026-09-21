@@ -23,10 +23,10 @@ import type {
 } from '@timeclock/hris';
 
 const CANNED: HrisEmployeeRef[] = [
-  { hrisEmployeeId: 'pc-1001', displayName: 'Grace Okafor', email: 'grace.okafor@acme.example', employeeNumber: '1001' },
-  { hrisEmployeeId: 'pc-1002', displayName: 'Ravi Menon', email: 'ravi.menon@acme.example', employeeNumber: '1002' },
-  { hrisEmployeeId: 'pc-1003', displayName: 'Lena Fischer', email: 'lena.fischer@acme.example', employeeNumber: '1003' },
-  { hrisEmployeeId: 'pc-1004', displayName: 'Diego Alvarez', email: 'diego.alvarez@acme.example', employeeNumber: '1004' },
+  { hrisEmployeeId: 'pc-1001', displayName: 'Grace Okafor', firstName: 'Grace', lastName: 'Okafor', email: 'grace.okafor@acme.example', employeeNumber: '1001' },
+  { hrisEmployeeId: 'pc-1002', displayName: 'Ravi Menon', firstName: 'Ravi', lastName: 'Menon', email: 'ravi.menon@acme.example', employeeNumber: '1002' },
+  { hrisEmployeeId: 'pc-1003', displayName: 'Lena Fischer', firstName: 'Lena', lastName: 'Fischer', email: 'lena.fischer@acme.example', employeeNumber: '1003' },
+  { hrisEmployeeId: 'pc-1004', displayName: 'Diego Alvarez', firstName: 'Diego', lastName: 'Alvarez', email: 'diego.alvarez@acme.example', employeeNumber: '1004' },
 ];
 
 export class MockHrisAdapter implements HrisAdapter {

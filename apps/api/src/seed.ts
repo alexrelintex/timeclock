@@ -42,6 +42,10 @@ export function seedDemo(db: Store, now: Date = new Date()): { tenant: Tenant; a
     id: a.id ?? randomUUID(),
     tenantId: tenant.id,
     displayName: a.displayName,
+    // Seeded names are all "First Last" (a role tag in parentheses aside), so
+    // the split is exact here; real records get theirs from the HRIS.
+    firstName: a.firstName ?? (a.displayName.replace(/\s*\(.*\)\s*$/, '').split(' ')[0] || null),
+    lastName: a.lastName ?? (a.displayName.replace(/\s*\(.*\)\s*$/, '').split(' ').slice(1).join(' ') || null),
     department: a.department,
     locationState: a.locationState ?? 'CA',
     timezone: a.timezone ?? tenant.timezone,

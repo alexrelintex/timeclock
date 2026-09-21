@@ -353,6 +353,41 @@ function resolveAssignableRole(caller: Agent, requestedRole?: unknown, legacyIsS
     : 'user';
 }
 
+/** A name field from a request body: trimmed string, `null` to clear, or
+ *  `undefined` when the body did not mention it. */
+function nameField(v: unknown): string | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t || null;
+}
+
+/** The display name to show when none was given: the given and family name
+ *  joined, else nothing. Kept in one place so every path composes it alike. */
+function composeDisplayName(firstName?: string | null, lastName?: string | null): string {
+  return [firstName, lastName].filter((s): s is string => typeof s === 'string' && s.trim() !== '').join(' ').trim();
+}
+
+/** An agent the HRIS owns, with the names the HRIS now reports. First and
+ *  last name follow the HRIS whenever it gives them. The display name follows
+ *  only when the record has no first or last name yet (it predates names being
+ *  carried), or when it is still a placeholder (the HRIS id or employee number)
+ *  — a display name somebody edited by hand is kept. Returns the same object
+ *  when nothing would change, so callers can skip the write. */
+function withHrisNames(agent: Agent, emp: { firstName?: string; lastName?: string; displayName?: string; employeeNumber?: string; hrisEmployeeId?: string }): Agent {
+  const firstName = emp.firstName?.trim() || undefined;
+  const lastName = emp.lastName?.trim() || undefined;
+  if (!firstName && !lastName) return agent;
+  const nextFirst = firstName ?? agent.firstName ?? null;
+  const nextLast = lastName ?? agent.lastName ?? null;
+  const hadNames = Boolean(agent.firstName || agent.lastName);
+  const placeholder = !agent.displayName.trim() || agent.displayName === emp.hrisEmployeeId || agent.displayName === emp.employeeNumber;
+  const composed = (emp.displayName?.trim() || composeDisplayName(nextFirst, nextLast)) || agent.displayName;
+  const nextDisplay = !hadNames || placeholder ? composed : agent.displayName;
+  if (nextFirst === (agent.firstName ?? null) && nextLast === (agent.lastName ?? null) && nextDisplay === agent.displayName) return agent;
+  return { ...agent, firstName: nextFirst, lastName: nextLast, displayName: nextDisplay };
+}
+
 /** Stable-ish host identity id for a manually-created or pulled employee. */
 function makeHostUserId(tenantId: string, displayName: string): string {
   const slug = displayName
@@ -1048,6 +1083,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         employees: all.map((a) => ({
           agentId: a.id,
           displayName: a.displayName,
+          firstName: a.firstName ?? null,
+          lastName: a.lastName ?? null,
           department: a.department,
           locationState: a.locationState,
           timezone: a.timezone,
@@ -1076,8 +1113,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const r = resolveAgent(req, url);
       requireSupervisor(r);
       const b = await readJson<Record<string, unknown>>(req);
-      const displayName = typeof b.displayName === 'string' ? b.displayName.trim() : '';
-      if (!displayName) return sendJson(res, 400, { error: 'displayName is required' });
+      // A display name, or a first and last name it is composed from.
+      const firstName = nameField(b.firstName) ?? null;
+      const lastName = nameField(b.lastName) ?? null;
+      const displayName = (typeof b.displayName === 'string' ? b.displayName.trim() : '') || composeDisplayName(firstName, lastName);
+      if (!displayName) return sendJson(res, 400, { error: 'displayName, or firstName and lastName, is required' });
       const syncToHris = b.syncToHris === true;
       const hrisEmployeeId = syncToHris
         ? (typeof b.hrisEmployeeId === 'string' && b.hrisEmployeeId.trim()) || `mock-${randomUUID().slice(0, 8)}`
@@ -1090,6 +1130,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         id: randomUUID(),
         tenantId: r.tenant.id,
         displayName,
+        firstName,
+        lastName,
         department: typeof b.department === 'string' && b.department.trim() ? b.department.trim() : 'General',
         locationState: typeof b.locationState === 'string' && b.locationState.trim() ? b.locationState.trim().toUpperCase() : 'CA',
         timezone: typeof b.timezone === 'string' && b.timezone.trim() ? b.timezone.trim() : r.tenant.timezone,
@@ -1137,7 +1179,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       let withEmail = 0; // of employees seen this pull, how many carried an email
       let total = 0; // employees seen this pull (all pages)
       let cursor: string | undefined;
-      const imported: { displayName: string; hrisEmployeeId: string; hostUserId: string; linked?: boolean }[] = [];
+      const imported: { displayName: string; firstName: string | null; lastName: string | null; hrisEmployeeId: string; hostUserId: string; linked?: boolean }[] = [];
       do {
         const page = await adapter.listEmployees(cursor);
         for (const emp of page.items) {
@@ -1149,8 +1191,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           const already = db.agentByHrisEmployeeId(r.tenant.id, emp.hrisEmployeeId);
           if (already) {
             // Already imported: reflect current HRIS state onto the existing record.
+            // The HRIS is the authority on the given and family name of someone it
+            // owns, so those follow it (a record imported before names were carried
+            // picks them up on the next pull); a display name a supervisor edited
+            // is kept unless it was only ever a placeholder.
+            const named = withHrisNames(already, emp);
             const patch: Partial<Agent> = {};
-            let changed = false;
+            let changed = named !== already;
             // Status: a person terminated in Paycor must not linger as active here;
             // a rehire (Active again) is reactivated.
             if (!hrisActive && already.active) {
@@ -1188,7 +1235,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               patch.hrisManagerId = emp.managerId;
               changed = true;
             }
-            if (changed) db.upsertAgent({ ...already, ...patch });
+            if (changed) db.upsertAgent({ ...named, ...patch });
             else skipped += 1;
             continue;
           }
@@ -1203,7 +1250,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             : undefined;
           if (existing) {
             const bound: Agent = {
-              ...existing,
+              ...withHrisNames(existing, emp),
               email: existing.email ?? email ?? null,
               hostUserId: existing.hostUserId || email!,
               hrisEmployeeId: emp.hrisEmployeeId,
@@ -1215,7 +1262,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               ...(hrisActive ? {} : { active: false, deactivatedAt: existing.deactivatedAt ?? new Date() }),
             };
             db.upsertAgent(bound);
-            imported.push({ displayName: bound.displayName, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: bound.hostUserId, linked: true });
+            imported.push({ displayName: bound.displayName, firstName: bound.firstName ?? null, lastName: bound.lastName ?? null, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: bound.hostUserId, linked: true });
             linked += 1;
             if (!hrisActive) deactivated += 1;
             continue;
@@ -1228,6 +1275,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             id: randomUUID(),
             tenantId: r.tenant.id,
             displayName: name,
+            firstName: emp.firstName?.trim() || null,
+            lastName: emp.lastName?.trim() || null,
             // On first import, take department + work-state from the HRIS when it
             // provides them (falling back to the form/default). These are written on
             // creation only — a later re-pull never overwrites them.
@@ -1249,7 +1298,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             active: hrisActive,
             deactivatedAt: hrisActive ? null : new Date(),
           });
-          imported.push({ displayName: name, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: pulledIdentity.hostUserId });
+          imported.push({ displayName: name, firstName: emp.firstName?.trim() || null, lastName: emp.lastName?.trim() || null, hrisEmployeeId: emp.hrisEmployeeId, hostUserId: pulledIdentity.hostUserId });
           created += 1;
           if (!hrisActive) deactivated += 1;
         }
@@ -1283,9 +1332,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (typeof b.displayName === 'string' && !b.displayName.trim()) {
         return sendJson(res, 400, { error: 'displayName cannot be blank' });
       }
+      // Names: a string sets one, null clears it, absent leaves it. When the
+      // names change and no display name came with them, the display name is
+      // recomposed from them so the roster keeps reading the same way.
+      const firstName = nameField(b.firstName);
+      const lastName = nameField(b.lastName);
+      const nextFirst = firstName === undefined ? (agent.firstName ?? null) : firstName;
+      const nextLast = lastName === undefined ? (agent.lastName ?? null) : lastName;
+      const namesChanged = nextFirst !== (agent.firstName ?? null) || nextLast !== (agent.lastName ?? null);
+      const sentDisplayName = typeof b.displayName === 'string' && b.displayName.trim() ? b.displayName.trim() : undefined;
       const next: Agent = {
         ...agent,
-        displayName: typeof b.displayName === 'string' && b.displayName.trim() ? b.displayName.trim() : agent.displayName,
+        firstName: nextFirst,
+        lastName: nextLast,
+        displayName: sentDisplayName ?? ((namesChanged && composeDisplayName(nextFirst, nextLast)) || agent.displayName),
         department: typeof b.department === 'string' && b.department.trim() ? b.department.trim() : agent.department,
         locationState:
           typeof b.locationState === 'string' && b.locationState.trim()
@@ -1463,6 +1523,9 @@ function handleWebhook(raw: string, res: ServerResponse): void {
       hrisEmployeeId?: string;
       hostUserId?: string;
       email?: string;
+      firstName?: string;
+      lastName?: string;
+      displayName?: string;
       departmentId?: string;
       activityTypeId?: string;
       active?: boolean;
@@ -1489,7 +1552,7 @@ function handleWebhook(raw: string, res: ServerResponse): void {
       undefined;
     if (!agent) return sendJson(res, 202, { matched: false });
     const updated: Agent = {
-      ...agent,
+      ...withHrisNames(agent, { firstName: emp.firstName, lastName: emp.lastName, displayName: emp.displayName }),
       email: email ?? agent.email,
       hostUserId: emp.hostUserId || agent.hostUserId,
       hrisEmployeeId: emp.hrisEmployeeId ?? agent.hrisEmployeeId,

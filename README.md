@@ -68,6 +68,13 @@ by swapping `MemoryDb` for the Prisma stores; enable Paycor by setting a tenant'
   (with a "Sync to HRIS" toggle) or **Pull from HRIS**. Endpoints:
   `GET/POST /api/supervisor/employees`, `POST /api/supervisor/employees/pull-hris`,
   `POST /api/supervisor/employees/:id/hris` (link/unlink).
+- **Names.** Every employee has a `displayName` and, when known, a `firstName`
+  and `lastName`. A pull from the HRIS carries the given and family name Paycor
+  holds (and fills them in on people imported before names were carried); a
+  record created in-app takes them from the form, or composes the display name
+  from them when none is typed. Nothing is ever guessed by splitting a display
+  name — a record made with only a display name reports `null` names, so a
+  consumer (the host CRM's directory sync) knows the difference.
 - **Email is the host identity.** Create an employee with an `email` and it
   becomes `hostUserId` (lower-cased): the one identifier the host CRM, the
   directory (Entra) and the HRIS all hold for the same person, so their records

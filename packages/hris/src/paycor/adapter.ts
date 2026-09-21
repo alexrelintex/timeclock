@@ -121,9 +121,13 @@ export class PaycorAdapter implements HrisAdapter {
       const active: boolean | undefined =
         status !== undefined ? status === 'Active' && !terminated : terminated ? false : undefined;
       const deptId = r.department?.id ?? undefined;
+      const firstName = r.firstName?.trim() || undefined;
+      const lastName = r.lastName?.trim() || undefined;
       return {
         hrisEmployeeId: r.employeeId ?? r.id ?? '',
-        displayName: [r.firstName, r.lastName].filter(Boolean).join(' ') || undefined,
+        displayName: [firstName, lastName].filter(Boolean).join(' ') || undefined,
+        firstName,
+        lastName,
         email: r.email?.emailAddress ?? r.emailAddress ?? undefined,
         employeeNumber: r.employeeNumber,
         status,

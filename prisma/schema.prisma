@@ -97,6 +97,8 @@ model Agent {
   tenantId        String
   tenant          Tenant  @relation(fields: [tenantId], references: [id])
   displayName     String
+  firstName       String? // from the HRIS (or typed); null when only a display name is known
+  lastName        String?
   department      String  @default("General") // coverage is measured per department
   locationState   String  @default("CA") // USPS work-state code -> wage rules (CA/TX/…)
   timezone        String // IANA; drives HRIS local-time conversion + meal timers

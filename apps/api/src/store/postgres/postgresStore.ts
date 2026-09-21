@@ -322,6 +322,8 @@ function rowToAgent(r: Record<string, any>): Agent {
     id: r.id,
     tenantId: r.tenantId,
     displayName: r.displayName,
+    firstName: r.firstName ?? null,
+    lastName: r.lastName ?? null,
     department: r.department,
     locationState: r.locationState ?? 'CA',
     timezone: r.timezone,

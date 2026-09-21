@@ -28,7 +28,7 @@ async function main(): Promise<void> {
     mealAlertTiers: [60, 30, 15], caMealRulesEnabled: true, hrisProvider: null, hrisConfig: null,
   };
   const agent: Agent = {
-    id: `${tid}-a1`, tenantId: tid, displayName: 'CI Bot', department: 'Support',
+    id: `${tid}-a1`, tenantId: tid, displayName: 'CI Bot', firstName: 'CI', lastName: 'Bot', department: 'Support',
     locationState: 'CA', timezone: 'America/Los_Angeles', role: 'manager', isSupervisor: true,
     managedDepartments: ['Support'], hostUserId: `${tid}-u1`, email: `ci-${tid}@x.co`,
     hrisEmployeeId: null, hrisDepartmentId: null, hrisActivityTypeId: null,
