@@ -333,6 +333,8 @@ function rowToAgent(r: Record<string, any>): Agent {
     hrisEmployeeId: r.hrisEmployeeId ?? null,
     hrisDepartmentId: r.hrisDepartmentId ?? null,
     hrisActivityTypeId: r.hrisActivityTypeId ?? null,
+    hrisTitle: r.hrisTitle ?? null,
+    hrisManagerId: r.hrisManagerId ?? null,
     mealWaiverOnFile: r.mealWaiverOnFile,
     active: r.active,
     deactivatedAt: r.deactivatedAt ?? null,

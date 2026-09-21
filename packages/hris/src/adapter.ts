@@ -70,6 +70,14 @@ export interface HrisEmployeeRef {
   /** Derived: is this a currently-employed person? `false` for terminated/separated
    *  employees the HRIS still returns. `undefined` when the provider doesn't say. */
   active?: boolean;
+  /** Home department name, resolved from the HRIS (used on first import only). */
+  department?: string;
+  /** Work-location USPS state code (e.g. "CA"), for wage/meal rules on first import. */
+  locationState?: string;
+  /** Job title from the HRIS (persisted for CRM sync; not shown in the panel). */
+  title?: string;
+  /** The manager's HRIS employee id (links to another employee's hrisEmployeeId). */
+  managerId?: string;
 }
 
 /** Auth is injected: the token endpoint gets wired during the build. */

@@ -1057,6 +1057,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           hostUserId: a.hostUserId,
           email: a.email ?? null,
           hrisEmployeeId: a.hrisEmployeeId,
+          hrisTitle: a.hrisTitle ?? null, // for CRM sync (not rendered in the panel)
+          hrisManagerId: a.hrisManagerId ?? null, // manager's hrisEmployeeId, for CRM
           synced: a.hrisEmployeeId !== null,
           active: a.active,
           deactivatedAt: a.deactivatedAt?.toISOString() ?? null,
@@ -1176,6 +1178,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
                 changed = true;
               }
             }
+            // Backfill title/manager for CRM sync when missing (never overwrite;
+            // department/state are left untouched on an existing employee).
+            if (emp.title && !already.hrisTitle) {
+              patch.hrisTitle = emp.title;
+              changed = true;
+            }
+            if (emp.managerId && !already.hrisManagerId) {
+              patch.hrisManagerId = emp.managerId;
+              changed = true;
+            }
             if (changed) db.upsertAgent({ ...already, ...patch });
             else skipped += 1;
             continue;
@@ -1195,6 +1207,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               email: existing.email ?? email ?? null,
               hostUserId: existing.hostUserId || email!,
               hrisEmployeeId: emp.hrisEmployeeId,
+              // Title/manager are HRIS-owned identity data for CRM sync: backfill when
+              // missing (dept/state are NOT touched on an existing employee).
+              hrisTitle: existing.hrisTitle ?? emp.title ?? null,
+              hrisManagerId: existing.hrisManagerId ?? emp.managerId ?? null,
               // A terminated employee is linked but deactivated, never made active.
               ...(hrisActive ? {} : { active: false, deactivatedAt: existing.deactivatedAt ?? new Date() }),
             };
@@ -1212,8 +1228,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             id: randomUUID(),
             tenantId: r.tenant.id,
             displayName: name,
-            department: b.department?.trim() || 'General',
-            locationState: (b.locationState?.trim() || 'CA').toUpperCase(),
+            // On first import, take department + work-state from the HRIS when it
+            // provides them (falling back to the form/default). These are written on
+            // creation only — a later re-pull never overwrites them.
+            department: emp.department?.trim() || b.department?.trim() || 'General',
+            locationState: (emp.locationState?.trim() || b.locationState?.trim() || 'CA').toUpperCase(),
             timezone: r.tenant.timezone,
             role: 'user',
             isSupervisor: false,
@@ -1222,6 +1241,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             hrisEmployeeId: emp.hrisEmployeeId, // synced by construction
             hrisDepartmentId: null,
             hrisActivityTypeId: null,
+            hrisTitle: emp.title ?? null,
+            hrisManagerId: emp.managerId ?? null,
             mealWaiverOnFile: false,
             // A terminated employee Paycor still returns is imported but inactive,
             // so they are visible with their status rather than counted as working.

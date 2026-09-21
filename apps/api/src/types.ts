@@ -60,6 +60,8 @@ export interface Agent {
   hrisEmployeeId: string | null;
   hrisDepartmentId: string | null;
   hrisActivityTypeId: string | null;
+  hrisTitle?: string | null; // job title from the HRIS (for CRM sync; not shown in UI)
+  hrisManagerId?: string | null; // manager's HRIS employee id (links to another hrisEmployeeId)
   mealWaiverOnFile: boolean;
   active: boolean; // false = deactivated (soft-delete). Punch logs are NEVER deleted.
   deactivatedAt?: Date | null; // when deactivated; drives the 90-day archive rule
