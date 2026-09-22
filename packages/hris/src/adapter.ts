@@ -82,6 +82,9 @@ export interface HrisEmployeeRef {
   title?: string;
   /** The manager's HRIS employee id (links to another employee's hrisEmployeeId). */
   managerId?: string;
+  /** FLSA type from the HRIS (HourlyExempt | HourlyNonExempt | SalaryExempt |
+   *  SalaryNonExempt); persisted for CRM sync, not shown in the panel. */
+  flsa?: string;
 }
 
 /** Auth is injected: the token endpoint gets wired during the build. */

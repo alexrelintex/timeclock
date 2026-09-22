@@ -115,6 +115,7 @@ model Agent {
   hrisActivityTypeId String?
   hrisTitle       String? // job title from the HRIS (for CRM sync; not shown in UI)
   hrisManagerId   String? // manager's HRIS employee id (links to another hrisEmployeeId)
+  hrisFlsa        String? // FLSA type from the HRIS (for CRM sync; not shown in UI)
   mealWaiverOnFile Boolean @default(false) // CA <=6h shift waiver
   active          Boolean @default(true)
   deactivatedAt   DateTime? // soft-delete time; drives the 90-day archive rule
