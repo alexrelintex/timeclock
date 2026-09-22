@@ -1067,19 +1067,28 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const r = resolveAgent(req, url);
       requireSupervisor(r);
       const tenant = r.tenant;
+      // One "show hidden" toggle covers BOTH archived and inactive employees. The
+      // default view (flag off) shows only currently-active, non-archived people so
+      // a manager sees just their working roster; the flag reveals everyone.
       const includeArchived = url.searchParams.get('includeArchived') === '1';
       const nowMs = Date.now();
       const scope = deptScope(r.agent, url.searchParams.get('department')); // may throw 403
       const scopeSet = scope ? new Set(scope) : null;
       const all = db
         .listAllAgents(tenant.id)
-        .filter((a) => (includeArchived || !a.archivedAt) && (!scopeSet || scopeSet.has(a.department)));
+        .filter(
+          (a) =>
+            (includeArchived || (!a.archivedAt && a.active)) &&
+            (!scopeSet || scopeSet.has(a.department)),
+        );
+      const everyone = db.listAllAgents(tenant.id);
       return sendJson(res, 200, {
         hrisProvider: tenant.hrisProvider,
         visibleDepartments: managedDepartments(r.agent) ?? db.departments(tenant.id),
         viewerRole: r.agent.role,
         includeArchived,
-        archivedCount: db.listAllAgents(tenant.id).filter((a) => a.archivedAt).length,
+        archivedCount: everyone.filter((a) => a.archivedAt).length,
+        inactiveCount: everyone.filter((a) => !a.archivedAt && !a.active).length,
         employees: all.map((a) => ({
           agentId: a.id,
           displayName: a.displayName,
