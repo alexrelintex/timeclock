@@ -86,7 +86,7 @@ async function statusMain(): Promise<void> {
   const tokens = { getAccessToken: async () => 'at', invalidate() {} };
   const page = {
     records: [
-      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active' }, email: { type: 'Work', emailAddress: 'ann@co.com' }, department: { id: 'dept-1' }, workLocation: { state: 'tx' }, positionData: { jobTitle: 'Engineer', manager: { id: 'mgr-9' } } },
+      { employeeId: 'e-active', firstName: 'Ann', lastName: 'Active', statusData: { status: 'Active', flsa: 'SalaryExempt' }, email: { type: 'Work', emailAddress: 'ann@co.com' }, department: { id: 'dept-1' }, workLocation: { state: 'tx' }, positionData: { jobTitle: 'Engineer', manager: { id: 'mgr-9' } } },
       { employeeId: 'e-term', firstName: 'Ted', lastName: 'Term', statusData: { status: 'Terminated' } },
       { employeeId: 'e-resigned', firstName: 'Rae', lastName: 'Quit', statusData: { status: 'Resigned' } },
       { employeeId: 'e-datedterm', firstName: 'Dan', lastName: 'Dated', statusData: { status: 'Active' }, employmentDateData: { terminationDate: '2025-01-01T00:00:00Z' } },
@@ -121,6 +121,7 @@ async function statusMain(): Promise<void> {
   console.assert(by['e-active'].locationState === 'TX', 'maps workLocation.state (upper-cased)');
   console.assert(by['e-active'].title === 'Engineer', 'maps positionData.jobTitle');
   console.assert(by['e-active'].managerId === 'mgr-9', 'maps positionData.manager.id');
+  console.assert(by['e-active'].flsa === 'SalaryExempt', 'maps statusData.flsa');
   console.log('paycor status: all assertions passed');
   finish('paycor-status');
 }

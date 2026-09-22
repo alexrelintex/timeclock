@@ -1105,6 +1105,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           hrisEmployeeId: a.hrisEmployeeId,
           hrisTitle: a.hrisTitle ?? null, // for CRM sync (not rendered in the panel)
           hrisManagerId: a.hrisManagerId ?? null, // manager's hrisEmployeeId, for CRM
+          hrisFlsa: a.hrisFlsa ?? null, // FLSA type, for CRM (not rendered in the panel)
           synced: a.hrisEmployeeId !== null,
           active: a.active,
           deactivatedAt: a.deactivatedAt?.toISOString() ?? null,
@@ -1244,6 +1245,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               patch.hrisManagerId = emp.managerId;
               changed = true;
             }
+            if (emp.flsa && !already.hrisFlsa) {
+              patch.hrisFlsa = emp.flsa;
+              changed = true;
+            }
             if (changed) db.upsertAgent({ ...named, ...patch });
             else skipped += 1;
             continue;
@@ -1267,6 +1272,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               // missing (dept/state are NOT touched on an existing employee).
               hrisTitle: existing.hrisTitle ?? emp.title ?? null,
               hrisManagerId: existing.hrisManagerId ?? emp.managerId ?? null,
+              hrisFlsa: existing.hrisFlsa ?? emp.flsa ?? null,
               // A terminated employee is linked but deactivated, never made active.
               ...(hrisActive ? {} : { active: false, deactivatedAt: existing.deactivatedAt ?? new Date() }),
             };
@@ -1301,6 +1307,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             hrisActivityTypeId: null,
             hrisTitle: emp.title ?? null,
             hrisManagerId: emp.managerId ?? null,
+            hrisFlsa: emp.flsa ?? null,
             mealWaiverOnFile: false,
             // A terminated employee Paycor still returns is imported but inactive,
             // so they are visible with their status rather than counted as working.

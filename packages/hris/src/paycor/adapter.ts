@@ -104,7 +104,7 @@ export class PaycorAdapter implements HrisAdapter {
         // Employment status lives under statusData.status (EmploymentStatus enum:
         // Active | Terminated | Resigned | Retired | LaidOff | Deceased | leaves…),
         // and a set terminationDate is authoritative that the person has separated.
-        statusData?: { status?: string } | null;
+        statusData?: { status?: string; flsa?: string } | null;
         employmentDateData?: { terminationDate?: string | null } | null;
         department?: { id?: string | null } | null;
         workLocation?: { state?: string | null; name?: string | null } | null;
@@ -136,6 +136,7 @@ export class PaycorAdapter implements HrisAdapter {
         locationState: r.workLocation?.state ? r.workLocation.state.trim().toUpperCase() : undefined,
         title: r.positionData?.jobTitle?.trim() || undefined,
         managerId: r.positionData?.manager?.id ?? undefined,
+        flsa: r.statusData?.flsa?.trim() || undefined,
       };
     });
     return { items, nextCursor: body.continuationToken || undefined };
