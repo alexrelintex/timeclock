@@ -133,7 +133,7 @@
           <strong>Employees</strong>
           <button class="lnk" id="empNewBtn">+ Create employee</button>
           <button class="lnk" id="empPullBtn">⟲ Pull from HRIS</button>
-          <label class="muted" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="empShowArch"> Show archived</label>
+          <label class="muted" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="empShowArch"> Show archived / inactive</label>
           <span class="muted" id="empMeta"></span>
         </div>
         <div class="muted" style="font-size:12px;margin:-4px 0 8px">Deactivate is a soft-delete — punch logs are retained (5&nbsp;yr). After 90&nbsp;days inactive an employee can be archived (hidden); HRIS-synced employees’ punches are archived in the HRIS.</div>
@@ -497,7 +497,8 @@
         const canPull = !!empData.hrisProvider;
         $('empPullBtn').classList.toggle('hidden', !canPull);
         const synced = empData.employees.filter(e=>e.synced).length;
-        $('empMeta').textContent = `${empData.employees.length} shown · ${synced} HRIS-synced · ${empData.employees.length-synced} local-only · ${empData.archivedCount} archived` + (canPull?` · HRIS: ${empData.hrisProvider}`:' · no HRIS');
+        const hidden = `${empData.archivedCount} archived · ${empData.inactiveCount ?? 0} inactive`;
+        $('empMeta').textContent = `${empData.employees.length} shown · ${synced} HRIS-synced · ${empData.employees.length-synced} local-only · ${hidden}` + (canPull?` · HRIS: ${empData.hrisProvider}`:' · no HRIS');
         $('empBody').innerHTML = empData.employees.map((e) => {
           const id = e.agentId;
           const retention = e.synced ? `<span class="hcode">${e.hrisEmployeeId} · HRIS retention</span>` : '<span class="hcode">5-yr local retention</span>';
