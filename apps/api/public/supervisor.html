@@ -516,6 +516,9 @@
           }
           const tag = e.archived ? ' <span class="chip" style="background:#2a1c33;color:#d8b4fe">archived</span>'
             : (!e.active ? ` <span class="chip" style="background:#3a1a1a;color:#fca5a5">inactive${e.synced?' · HRIS':''}</span>` : '');
+          // Only HourlyNonExempt keeps the punch widget active; flag exempt/salaried.
+          const clockOff = e.hrisFlsa && e.hrisFlsa !== 'HourlyNonExempt';
+          const flsaChip = clockOff ? ` <span class="chip" style="background:#2a2410;color:#fcd34d" title="${e.hrisFlsa}">clock off · ${e.hrisFlsa}</span>` : '';
           let roleChip = '';
           if (e.role && e.role !== 'user') {
             const style = e.role==='admin' ? '#1d3a1f;color:#86efac' : e.role==='manager' ? '#1a2a45;color:#93c5fd' : '#12303a;color:#7dd3fc';
@@ -525,7 +528,7 @@
             roleChip = ` <span class="chip" style="background:${style}">${e.role}${scope?' · '+scope:''}</span>`;
           }
           return `<tr style="${e.active?'':'opacity:.55'}">
-          <td>${e.displayName}${roleChip}${tag}<div class="muted" style="font-size:11px">${e.email ? e.email : '<span style="color:#fca5a5">no email · not linked to CRM</span>'}</div></td>
+          <td>${e.displayName}${roleChip}${tag}${flsaChip}<div class="muted" style="font-size:11px">${e.email ? e.email : '<span style="color:#fca5a5">no email · not linked to CRM</span>'}</div></td>
           <td><span class="chip">${e.department}</span></td>
           <td><span class="chip">${e.locationState}</span></td>
           <td class="muted">${e.timezone}</td>
@@ -542,6 +545,7 @@
               <label>Dept <input type="text" class="ee-dept" value="${e.department}" style="width:110px"></label>
               <label>State <input type="text" class="ee-state" value="${e.locationState}" style="width:56px" maxlength="2"></label>
               <label>Timezone <select class="ee-tz" style="width:210px">${tzOptionsHTML(e.timezone)}</select></label>
+              <label title="Only HourlyNonExempt keeps the punch widget active">FLSA <select class="ee-flsa" style="width:150px">${['','HourlyNonExempt','HourlyExempt','SalaryExempt','SalaryNonExempt'].map(v=>`<option value="${v}" ${((e.hrisFlsa||'')===v)?'selected':''}>${v||'—'}</option>`).join('')}</select></label>
               ${empData.viewerRole === 'admin' ? `<label>Role <select class="ee-role">${['user','supervisor','manager','admin'].map(rr=>`<option value="${rr}" ${e.role===rr?'selected':''}>${rr[0].toUpperCase()+rr.slice(1)}</option>`).join('')}</select></label> <label>Dept(s) <input type="text" class="ee-depts" value="${(e.managedDepartments||[]).join(',')}" placeholder="own dept" style="width:130px"></label>` : ''}
               <button class="rowbtn ee-save" data-save="${e.agentId}">Save</button>
               <button class="rowbtn ee-cancel" data-cancel="${e.agentId}">Cancel</button>
@@ -638,6 +642,7 @@
           if (g('ee-email') && g('ee-email').value.trim() !== (g('ee-email').dataset.orig || '')) {
             body.email = g('ee-email').value.trim();
           }
+          if (g('ee-flsa')) body.hrisFlsa = g('ee-flsa').value;
 
           if (!body.displayName) { row.querySelector('.ee-err').textContent = 'Name required.'; return; }
           const r = await fetch(`/api/supervisor/employees/${save.dataset.save}${q}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });

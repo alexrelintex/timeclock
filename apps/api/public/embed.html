@@ -163,6 +163,8 @@
         <div class="meal" id="meal"></div>
       </div>
 
+      <div class="meal lvl-BREACH hidden" id="flsaNote" style="margin-bottom:10px"></div>
+
       <div class="grid" id="buttons">
         <button class="pb primary" data-type="IN">Clock in</button>
         <button class="pb danger" data-type="OUT">Clock out</button>
@@ -332,6 +334,16 @@
           // While an orphan correction is pending, block clock-in specifically.
           const blocked = corr && b.dataset.type==='IN';
           b.disabled = blocked || !view.allowed.includes(b.dataset.type);
+        }
+        // Salaried/exempt (FLSA) employees: the whole punch grid is hidden and a note
+        // explains why. Server also rejects any punch, so this is UX, not the gate.
+        if (view.punchEligible === false) {
+          $('flsaNote').textContent = view.punchDisabledReason || 'Time clock is not enabled for this employee.';
+          $('flsaNote').classList.remove('hidden');
+          $('buttons').classList.add('hidden');
+        } else {
+          $('flsaNote').classList.add('hidden');
+          $('buttons').classList.remove('hidden');
         }
         $('launcher').className = 's-' + view.status;
         showIntent();

@@ -21,6 +21,16 @@ import type { Agent, ComplianceException } from './types.js';
 
 const ACTIONS: PunchEventType[] = ['IN', 'OUT', 'BREAK_START', 'BREAK_END', 'LUNCH_START', 'LUNCH_END'];
 
+// Only HourlyNonExempt employees may punch — salaried/exempt staff must not create
+// punches (which would flow to the HRIS as time worked). FLSA may come from the HRIS
+// or be set manually. An unknown/blank FLSA stays eligible (e.g. locally-created
+// hourly staff, or before the first HRIS pull populates it), so nobody is blocked on
+// missing data; a known exempt/salaried value disables the widget.
+export function punchEligible(agent: Agent): boolean {
+  const f = agent.hrisFlsa;
+  return !f || f === 'HourlyNonExempt';
+}
+
 export interface AgentView {
   agentId: string;
   displayName: string;
@@ -36,6 +46,9 @@ export interface AgentView {
   lunchMs: number;
   currentIntervalStart: string | null;
   allowed: PunchEventType[];
+  /** False for salaried/exempt (FLSA) employees — the widget must be inactive. */
+  punchEligible: boolean;
+  punchDisabledReason: string | null;
   /** Present when the agent must file a missing clock-out before a new shift. */
   clockoutCorrection: { shiftStart: string; ageMs: number; suggestedClockout: string } | null;
   meal: {
@@ -56,6 +69,7 @@ export function buildAgentView(db: Store, agent: Agent, now: Date): AgentView {
   const meal = evaluateAgentMeal(db, agent, now);
   const orphan = pendingClockoutCorrection(db, agent, now);
   const rules = rulesForState(agent.locationState);
+  const eligible = punchEligible(agent);
   return {
     agentId: agent.id,
     displayName: agent.displayName,
@@ -70,7 +84,13 @@ export function buildAgentView(db: Store, agent: Agent, now: Date): AgentView {
     breakMs: proj.breakMs,
     lunchMs: proj.lunchMs,
     currentIntervalStart: proj.currentIntervalStart?.toISOString() ?? null,
-    allowed: ACTIONS.filter((a) => canTransition(proj.status, a)),
+    // Ineligible (salaried/exempt) employees get no available actions — the widget
+    // renders every punch button disabled.
+    allowed: eligible ? ACTIONS.filter((a) => canTransition(proj.status, a)) : [],
+    punchEligible: eligible,
+    punchDisabledReason: eligible
+      ? null
+      : `Time clock is disabled for ${agent.hrisFlsa} employees. Salaried/exempt staff do not punch.`,
     clockoutCorrection: orphan
       ? {
           shiftStart: orphan.shiftStart.toISOString(),

@@ -31,7 +31,7 @@ import { ensureBootstrapAdmin } from './bootstrapAdmin.js';
 import { TenantAdapterRegistry } from './hris/registry.js';
 import { CONNECTORS, catalogList } from './hris/catalog.js';
 import { sweep } from './compliance.js';
-import { buildAgentView, buildSupervisorSnapshot } from './snapshot.js';
+import { buildAgentView, buildSupervisorSnapshot, punchEligible } from './snapshot.js';
 import {
   ClockoutCorrectionError,
   pendingClockoutCorrection,
@@ -732,6 +732,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (!body.type || !VALID_PUNCH.has(body.type)) {
         return sendJson(res, 400, { error: 'invalid punch type' });
       }
+      // Salaried/exempt (FLSA) employees must never create a punch (it would flow to
+      // the HRIS). The widget disables its buttons; enforce it here too.
+      if (!punchEligible(r.agent)) {
+        return sendJson(res, 403, {
+          code: 'PUNCH_DISABLED_FLSA',
+          error: `Time clock is disabled for ${r.agent.hrisFlsa} employees.`,
+        });
+      }
       // Orphan gate: a missing clock-out must be filed before a new clock-in.
       if (body.type === 'IN') {
         const correction = pendingClockoutCorrection(db, r.agent, new Date());
@@ -1376,6 +1384,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         // back to the slug the record was created with, or a fresh one.
         next.email = identity.email;
         next.hostUserId = identity.email ? identity.hostUserId : (agent.email ? makeHostUserId(r.tenant.id, next.displayName) : agent.hostUserId);
+      }
+      // FLSA can be set manually (governs whether the punch widget is active). Accept
+      // a valid enum value or empty string to clear; ignore anything else.
+      if (b.hrisFlsa !== undefined) {
+        const FLSA = ['HourlyExempt', 'HourlyNonExempt', 'SalaryExempt', 'SalaryNonExempt'];
+        const v = typeof b.hrisFlsa === 'string' ? b.hrisFlsa.trim() : '';
+        if (v === '' || FLSA.includes(v)) next.hrisFlsa = v || null;
+        else return sendJson(res, 400, { error: 'invalid FLSA value' });
       }
       // Role changes are admin-only; a manager editing a profile can't change tiers.
       if (r.agent.role === 'admin' && (typeof b.role === 'string' || typeof b.isSupervisor === 'boolean')) {
