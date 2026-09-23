@@ -21,14 +21,15 @@ import type { Agent, ComplianceException } from './types.js';
 
 const ACTIONS: PunchEventType[] = ['IN', 'OUT', 'BREAK_START', 'BREAK_END', 'LUNCH_START', 'LUNCH_END'];
 
-// Only HourlyNonExempt employees may punch — salaried/exempt staff must not create
-// punches (which would flow to the HRIS as time worked). FLSA may come from the HRIS
-// or be set manually. An unknown/blank FLSA stays eligible (e.g. locally-created
-// hourly staff, or before the first HRIS pull populates it), so nobody is blocked on
-// missing data; a known exempt/salaried value disables the widget.
+// Salaried/exempt staff must not create punches (which would flow to the HRIS as time
+// worked). FLSA may come from the HRIS or be set manually. Only the three named
+// exempt/salaried values disable the widget; everything else — HourlyNonExempt, blank,
+// or Paycor's "Unknown" — stays eligible, so no active employee is blocked on missing
+// or ambiguous data (a genuinely-exempt person mislabeled this way is fixed by setting
+// their FLSA correctly in Paycor or via the Edit form).
+const PUNCH_INELIGIBLE_FLSA = new Set(['HourlyExempt', 'SalaryExempt', 'SalaryNonExempt']);
 export function punchEligible(agent: Agent): boolean {
-  const f = agent.hrisFlsa;
-  return !f || f === 'HourlyNonExempt';
+  return !agent.hrisFlsa || !PUNCH_INELIGIBLE_FLSA.has(agent.hrisFlsa);
 }
 
 export interface AgentView {
