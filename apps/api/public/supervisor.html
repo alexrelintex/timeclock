@@ -516,8 +516,8 @@
           }
           const tag = e.archived ? ' <span class="chip" style="background:#2a1c33;color:#d8b4fe">archived</span>'
             : (!e.active ? ` <span class="chip" style="background:#3a1a1a;color:#fca5a5">inactive${e.synced?' · HRIS':''}</span>` : '');
-          // Only HourlyNonExempt keeps the punch widget active; flag exempt/salaried.
-          const clockOff = e.hrisFlsa && e.hrisFlsa !== 'HourlyNonExempt';
+          // Only the three named exempt/salaried FLSA values disable the widget.
+          const clockOff = ['HourlyExempt','SalaryExempt','SalaryNonExempt'].includes(e.hrisFlsa);
           const flsaChip = clockOff ? ` <span class="chip" style="background:#2a2410;color:#fcd34d" title="${e.hrisFlsa}">clock off · ${e.hrisFlsa}</span>` : '';
           let roleChip = '';
           if (e.role && e.role !== 'user') {
