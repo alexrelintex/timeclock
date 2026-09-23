@@ -80,8 +80,6 @@ export interface HrisEmployeeRef {
   locationState?: string;
   /** Job title from the HRIS (persisted for CRM sync; not shown in the panel). */
   title?: string;
-  /** The manager's HRIS employee id (links to another employee's hrisEmployeeId). */
-  managerId?: string;
   /** FLSA type from the HRIS (HourlyExempt | HourlyNonExempt | SalaryExempt |
    *  SalaryNonExempt); persisted for CRM sync, not shown in the panel. */
   flsa?: string;
