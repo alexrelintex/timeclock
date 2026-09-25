@@ -120,7 +120,6 @@ async function statusMain(): Promise<void> {
   console.assert(by['e-active'].department === 'Engineering', 'resolves department id → name');
   console.assert(by['e-active'].locationState === 'TX', 'maps workLocation.state (upper-cased)');
   console.assert(by['e-active'].title === 'Engineer', 'maps positionData.jobTitle');
-  console.assert(by['e-active'].managerId === 'mgr-9', 'maps positionData.manager.id');
   console.assert(by['e-active'].flsa === 'SalaryExempt', 'maps statusData.flsa');
   console.log('paycor status: all assertions passed');
   finish('paycor-status');

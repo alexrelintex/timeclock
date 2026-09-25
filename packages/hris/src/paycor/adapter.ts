@@ -79,7 +79,7 @@ export class PaycorAdapter implements HrisAdapter {
     params.append('include', 'Status');
     params.append('include', 'EmploymentDates');
     params.append('include', 'WorkLocation'); // populates workLocation.state (else null)
-    params.append('include', 'Position'); // populates positionData.jobTitle + manager
+    params.append('include', 'Position'); // populates positionData.jobTitle
     if (cursor) params.set('continuationToken', cursor);
     // Department on the employee is only an id reference; resolve id → name once.
     const deptMap = await this.departmentMap();
@@ -108,7 +108,7 @@ export class PaycorAdapter implements HrisAdapter {
         employmentDateData?: { terminationDate?: string | null } | null;
         department?: { id?: string | null } | null;
         workLocation?: { state?: string | null; name?: string | null } | null;
-        positionData?: { jobTitle?: string | null; manager?: { id?: string | null } | null } | null;
+        positionData?: { jobTitle?: string | null } | null;
       }[];
       continuationToken?: string;
     };
@@ -135,7 +135,6 @@ export class PaycorAdapter implements HrisAdapter {
         department: (deptId ? deptMap.get(deptId) : undefined) || undefined,
         locationState: r.workLocation?.state ? r.workLocation.state.trim().toUpperCase() : undefined,
         title: r.positionData?.jobTitle?.trim() || undefined,
-        managerId: r.positionData?.manager?.id ?? undefined,
         flsa: r.statusData?.flsa?.trim() || undefined,
       };
     });
