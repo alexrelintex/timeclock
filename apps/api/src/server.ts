@@ -1050,6 +1050,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         const list = await (adapter as { listActivityTypes(): Promise<{ id: string; name: string }[]> }).listActivityTypes();
         return sendJson(res, 200, { activityTypes: list, supported: true });
       } catch (e) {
+        // Logged: the picker only shows "could not load", so the provider's reason
+        // (typically a missing Paycor data-access grant) must reach the server logs.
+        console.error('[activity-types]', r.tenant.id, (e as Error).message);
         return sendJson(res, 502, { error: (e as Error).message, supported: true });
       }
     }
@@ -1083,6 +1086,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         if (v === undefined) continue;
         if (f.secret && (v === '' || v === '••••••')) continue; // blank/masked → keep existing
         next[f.key] = v;
+      }
+      // Paycor punches carry the activity type as a GUID; a name typed into the field
+      // (e.g. "regular" when the picker could not load) would make every punch fail.
+      const act = typeof next.activityTypeId === 'string' ? next.activityTypeId.trim() : '';
+      if (provider === 'paycor' && act && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(act)) {
+        return sendJson(res, 400, {
+          error: `Default activity type must be the activity type's ID (a GUID), not a name — got "${act}". Pick it from the list, or look up the ID in Paycor.`,
+        });
       }
       db.setTenantHris(r.tenant.id, provider === 'none' ? null : provider, info.configFields.length ? next : {});
       registry.invalidate(r.tenant.id); // rebuild the adapter from fresh config
