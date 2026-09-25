@@ -35,6 +35,8 @@ export interface PaycorTenantConfig {
   subscriptionKey: string; // Ocp-Apim-Subscription-Key
   /** Per-agent Paycor write requirements, keyed by hrisEmployeeId. */
   employeeWriteConfig: Record<string, { departmentId: string; activityTypeId: string }>;
+  /** Tenant-wide activity-type GUID applied to punches that carry none of their own. */
+  defaultActivityTypeId?: string;
   /** Earning code GUID for the CA meal/rest premium pay item. */
   mealPremiumEarningId?: string;
   baseUrl?: string; // default https://apis.paycor.com
@@ -133,12 +135,42 @@ export class PaycorAdapter implements HrisAdapter {
         status,
         active,
         department: (deptId ? deptMap.get(deptId) : undefined) || undefined,
+        departmentId: deptId || undefined,
         locationState: r.workLocation?.state ? r.workLocation.state.trim().toUpperCase() : undefined,
         title: r.positionData?.jobTitle?.trim() || undefined,
         flsa: r.statusData?.flsa?.trim() || undefined,
       };
     });
     return { items, nextCursor: body.continuationToken || undefined };
+  }
+
+  /** Legal-entity activity types (id + name) — lets an admin pick the default
+   *  activity type punches are filed under, instead of hunting for a GUID. */
+  async listActivityTypes(): Promise<{ id: string; name: string; isCustom?: boolean }[]> {
+    const out: { id: string; name: string; isCustom?: boolean }[] = [];
+    let cursor: string | undefined;
+    do {
+      const params = new URLSearchParams();
+      if (cursor) params.set('continuationToken', cursor);
+      const qs = params.toString();
+      const res = await this.request(
+        'GET',
+        `/v1/legalentities/${this.cfg.legalEntityId}/activitytypes${qs ? `?${qs}` : ''}`,
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Paycor activitytypes failed: HTTP ${res.status} ${text.slice(0, 200)}`);
+      }
+      const body = (await res.json()) as {
+        records?: { id?: string; name?: string; isCustom?: boolean }[];
+        continuationToken?: string;
+      };
+      for (const a of body.records ?? []) {
+        if (a.id) out.push({ id: a.id, name: (a.name ?? '').trim() || a.id, isCustom: a.isCustom });
+      }
+      cursor = body.continuationToken || undefined;
+    } while (cursor);
+    return out;
   }
 
   /** Resolve legal-entity departments to an id → name map, fetched once and cached.
@@ -220,24 +252,34 @@ export class PaycorAdapter implements HrisAdapter {
     const inOut = batch.filter((p) => p.type === 'IN' || p.type === 'OUT');
     if (inOut.length === 0) return { kind: 'DELIVERED' };
 
+    // Resolve write fields per punch: the punch's own (stamped from the employee at
+    // enqueue) → the legacy per-employee map → the tenant default activity type.
+    const missing = new Set<string>();
     const body = inOut.map((p) => {
       const w = this.cfg.employeeWriteConfig[p.hrisEmployeeId];
-      if (!w) {
-        throw new Error(
-          `Missing Paycor write config (departmentId/activityTypeId) for employee ${p.hrisEmployeeId}`,
-        );
-      }
+      const departmentId = p.departmentId ?? w?.departmentId;
+      const activityTypeId = p.activityTypeId ?? w?.activityTypeId ?? this.cfg.defaultActivityTypeId;
+      if (!departmentId || !activityTypeId) missing.add(p.hrisEmployeeId);
       return {
         employeeId: p.hrisEmployeeId,
-        departmentId: w.departmentId,
+        departmentId,
         // VERIFIED: punchDateTime is employee-LOCAL, no offset.
         punchDateTime: toEmployeeLocalDateTime(p.timeUtc, p.agentTimezone),
         punchStatusType: p.type === 'IN' ? 'In' : 'Out',
-        activityTypeId: w.activityTypeId,
+        activityTypeId,
         isTransfer: false,
         ...(p.note ? { note: p.note.slice(0, 300) } : {}),
       };
     });
+    // Fail the batch visibly (surfaces in the HRIS outbox) instead of throwing, so a
+    // misconfigured employee can't wedge the drain loop.
+    if (missing.size) {
+      return {
+        kind: 'FAILED',
+        retryable: false,
+        error: `Missing Paycor departmentId/activityTypeId for employee(s) ${[...missing].join(', ')} — set the default activity type on the HRIS connector and re-pull so departments are captured.`,
+      };
+    }
 
     return this.asyncPost(
       `/v1/legalentities/${this.cfg.legalEntityId}/CreatePunches`,

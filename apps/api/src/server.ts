@@ -509,6 +509,10 @@ function agentContext(r: Resolved): AgentContext {
     tenantId: r.tenant.id,
     timezone: r.agent.timezone,
     hrisEmployeeId: r.agent.hrisEmployeeId,
+    // Stamped onto the outbox punch so the HRIS write is self-contained; the tenant
+    // default activity type is applied by the adapter when the agent has none.
+    hrisDepartmentId: r.agent.hrisDepartmentId,
+    hrisActivityTypeId: r.agent.hrisActivityTypeId,
   };
 }
 
@@ -1033,6 +1037,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       requireAdmin(r);
       return sendJson(res, 200, { connectors: catalogList() });
     }
+    // Activity types the tenant's HRIS offers, so an admin can pick the default one
+    // punches are filed under by name. Only providers that expose the concept.
+    if (p === '/api/admin/hris/activity-types' && method === 'GET') {
+      const r = resolveAgent(req, url);
+      requireAdmin(r);
+      const adapter = await registry.forTenant(r.tenant.id);
+      if (!adapter || !('listActivityTypes' in adapter)) {
+        return sendJson(res, 200, { activityTypes: [], supported: false });
+      }
+      try {
+        const list = await (adapter as { listActivityTypes(): Promise<{ id: string; name: string }[]> }).listActivityTypes();
+        return sendJson(res, 200, { activityTypes: list, supported: true });
+      } catch (e) {
+        return sendJson(res, 502, { error: (e as Error).message, supported: true });
+      }
+    }
     if (p === '/api/admin/hris' && method === 'GET') {
       const r = resolveAgent(req, url);
       requireAdmin(r);
@@ -1248,6 +1268,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               patch.hrisTitle = emp.title;
               changed = true;
             }
+            // Paycor department GUID is a punch-write requirement: backfill when blank
+            // (distinct from the display department name, which is create-only).
+            if (emp.departmentId && !already.hrisDepartmentId) {
+              patch.hrisDepartmentId = emp.departmentId;
+              changed = true;
+            }
             if (emp.flsa && !already.hrisFlsa) {
               patch.hrisFlsa = emp.flsa;
               changed = true;
@@ -1275,6 +1301,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
               // missing (dept/state are NOT touched on an existing employee).
               hrisTitle: existing.hrisTitle ?? emp.title ?? null,
               hrisFlsa: existing.hrisFlsa ?? emp.flsa ?? null,
+              hrisDepartmentId: existing.hrisDepartmentId ?? emp.departmentId ?? null,
               // A terminated employee is linked but deactivated, never made active.
               ...(hrisActive ? {} : { active: false, deactivatedAt: existing.deactivatedAt ?? new Date() }),
             };
@@ -1305,7 +1332,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             hostUserId: pulledIdentity.hostUserId,
             email: pulledIdentity.email,
             hrisEmployeeId: emp.hrisEmployeeId, // synced by construction
-            hrisDepartmentId: null,
+            hrisDepartmentId: emp.departmentId ?? null, // Paycor dept GUID (punch writes)
             hrisActivityTypeId: null,
             hrisTitle: emp.title ?? null,
             hrisFlsa: emp.flsa ?? null,

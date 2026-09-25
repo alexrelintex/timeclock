@@ -118,6 +118,7 @@ async function statusMain(): Promise<void> {
   console.assert(by['e-term'].status === 'Terminated', 'raw status is surfaced');
   console.assert(by['e-active'].email === 'ann@co.com', 'extracts nested email.emailAddress (CRM link key)');
   console.assert(by['e-active'].department === 'Engineering', 'resolves department id → name');
+  console.assert(by['e-active'].departmentId === 'dept-1', 'exposes the raw department GUID (punch writes)');
   console.assert(by['e-active'].locationState === 'TX', 'maps workLocation.state (upper-cased)');
   console.assert(by['e-active'].title === 'Engineer', 'maps positionData.jobTitle');
   console.assert(by['e-active'].flsa === 'SalaryExempt', 'maps statusData.flsa');
@@ -126,3 +127,40 @@ async function statusMain(): Promise<void> {
 }
 
 statusMain().catch((e) => { console.error(e); process.exit(1); });
+
+// -- pushPunches: write fields resolved from the punch + tenant default activity type --
+async function writeMain(): Promise<void> {
+  const tokens = { getAccessToken: async () => 'at', invalidate() {} };
+  let posted: { url: string; body: unknown } | null = null;
+  const fetchImpl = (async (u: string, init: RequestInit) => {
+    posted = { url: u, body: JSON.parse(init.body as string) };
+    return res(200, { trackingId: 'trk-1' });
+  }) as unknown as AnyFetch;
+  const a = new PaycorAdapter(
+    { legalEntityId: 199759, subscriptionKey: 'k', employeeWriteConfig: {}, defaultActivityTypeId: 'act-default' },
+    tokens,
+    fetchImpl,
+  );
+  const punch = {
+    punchEventId: 'ev-1', agentId: 'ag-1', hrisEmployeeId: 'emp-1', type: 'IN' as const,
+    timeUtc: new Date('2026-09-25T16:00:00Z'), agentTimezone: 'America/Los_Angeles', departmentId: 'dept-9',
+  };
+  const out = await a.pushPunches([punch]);
+  const row = (posted!.body as Record<string, unknown>[])[0];
+  console.assert(/\/v1\/legalentities\/199759\/CreatePunches$/.test(posted!.url), 'POSTs to CreatePunches for the legal entity');
+  console.assert(row.departmentId === 'dept-9', 'uses the departmentId stamped on the punch');
+  console.assert(row.activityTypeId === 'act-default', 'falls back to the tenant default activity type');
+  console.assert(row.punchStatusType === 'In' && row.punchDateTime === '2026-09-25T09:00:00', 'In punch, employee-local time (PDT)');
+  console.assert(out.kind === 'SUBMITTED', 'returns SUBMITTED with the tracking id');
+
+  // Missing both → FAILED (visible in the outbox), never a throw that wedges the drain.
+  const b = new PaycorAdapter({ legalEntityId: 1, subscriptionKey: 'k', employeeWriteConfig: {} }, tokens, fetchImpl);
+  let threw = false;
+  let failed = null as { kind: string; retryable?: boolean } | null;
+  try { failed = (await b.pushPunches([{ ...punch, departmentId: undefined }])) as { kind: string; retryable?: boolean }; } catch { threw = true; }
+  console.assert(!threw && failed?.kind === 'FAILED' && failed.retryable === false, 'missing write config → FAILED, not thrown');
+  console.log('paycor write: all assertions passed');
+  finish('paycor-write');
+}
+
+writeMain().catch((e) => { console.error(e); process.exit(1); });

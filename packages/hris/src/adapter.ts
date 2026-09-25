@@ -21,6 +21,12 @@ export interface CanonicalPunch {
   timeUtc: Date;
   agentTimezone: string; // IANA
   note?: string;
+  /** Provider write fields stamped at enqueue time from the employee record, so a
+   *  punch is self-contained (no dependency on a cached adapter's employee map).
+   *  Paycor: department GUID + activity-type GUID. Adapters fall back to tenant
+   *  defaults when absent. */
+  departmentId?: string;
+  activityTypeId?: string;
 }
 
 export interface CanonicalPayItem {
@@ -76,6 +82,8 @@ export interface HrisEmployeeRef {
   active?: boolean;
   /** Home department name, resolved from the HRIS (used on first import only). */
   department?: string;
+  /** Raw HRIS department id (Paycor GUID) — required on punch writes. */
+  departmentId?: string;
   /** Work-location USPS state code (e.g. "CA"), for wage/meal rules on first import. */
   locationState?: string;
   /** Job title from the HRIS (persisted for CRM sync; not shown in the panel). */
