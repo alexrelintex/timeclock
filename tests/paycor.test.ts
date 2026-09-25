@@ -164,3 +164,31 @@ async function writeMain(): Promise<void> {
 }
 
 writeMain().catch((e) => { console.error(e); process.exit(1); });
+
+// -- resolveSubmission: only a real success may count as resolved --
+async function resolveMain(): Promise<void> {
+  let invalidated = 0;
+  const tokens = { getAccessToken: async () => 'at', invalidate() { invalidated += 1; } };
+  const mk = (status: number, json: unknown) =>
+    new PaycorAdapter({ legalEntityId: 199758, subscriptionKey: 'k', employeeWriteConfig: {} }, tokens,
+      (async () => res(status, json)) as unknown as AnyFetch);
+  const warn = console.warn; console.warn = () => {}; // expected warnings, keep output clean
+  try {
+    const r404 = await mk(404, {}).resolveSubmission('t1');
+    console.assert(r404.resolved === false, '404 → still processing');
+    const r403 = await mk(403, { Title: 'Forbidden' }).resolveSubmission('t2');
+    console.assert(r403.resolved === false && r403.perRecordErrors.length === 0, '403 (missing grant) → NOT resolved (was a false success)');
+    const r500 = await mk(500, {}).resolveSubmission('t3');
+    console.assert(r500.resolved === false, '500 → NOT resolved');
+    const r401 = await mk(401, {}).resolveSubmission('t4');
+    console.assert(r401.resolved === false && invalidated === 1, '401 → NOT resolved, token invalidated');
+    const ok = await mk(200, { records: [] }).resolveSubmission('t5');
+    console.assert(ok.resolved === true && ok.perRecordErrors.length === 0, '200 empty → resolved, no errors');
+    const bad = await mk(200, { records: [{ employeeId: 'e1', message: 'Invalid activity type' }] }).resolveSubmission('t6');
+    console.assert(bad.resolved === true && bad.perRecordErrors[0]?.message === 'Invalid activity type', '200 with records → resolved with per-record errors');
+  } finally { console.warn = warn; }
+  console.log('paycor resolve: all assertions passed');
+  finish('paycor-resolve');
+}
+
+resolveMain().catch((e) => { console.error(e); process.exit(1); });

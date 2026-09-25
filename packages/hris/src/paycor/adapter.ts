@@ -346,6 +346,10 @@ export class PaycorAdapter implements HrisAdapter {
     );
   }
 
+  // Submissions already warned about, so a permanent failure (e.g. a missing "View
+  // Punch Error Log" grant) is logged once per submission rather than every drain.
+  private warnedSubmissions = new Set<string>();
+
   async resolveSubmission(trackingId: string): Promise<SubmissionResolution> {
     // VERIFIED: GET /v1/legalentities/{id}/punchErrorLog/{trackingId}
     const res = await this.request(
@@ -353,7 +357,24 @@ export class PaycorAdapter implements HrisAdapter {
       `/v1/legalentities/${this.cfg.legalEntityId}/punchErrorLog/${encodeURIComponent(trackingId)}`,
     );
     if (res.status === 404) return { resolved: false, perRecordErrors: [] }; // still processing
-    const body = (await res.json()) as {
+    // Any other failure means the outcome could NOT be read. It must never count as
+    // "resolved with no errors" — that would mark punches confirmed without checking
+    // (a 403 from a missing grant looked exactly like success). Keep polling instead,
+    // refresh the token on 401, and surface the reason once.
+    if (!res.ok) {
+      if (res.status === 401) this.tokens.invalidate();
+      const key = `${trackingId}:${res.status}`;
+      if (!this.warnedSubmissions.has(key)) {
+        this.warnedSubmissions.add(key);
+        const text = await res.text().catch(() => '');
+        const hint = res.status === 403 ? ' — grant "View Punch Error Log" to the Paycor app' : '';
+        console.warn(
+          `[paycor] punchErrorLog ${trackingId} → HTTP ${res.status}; submission left unconfirmed${hint}: ${text.slice(0, 200)}`,
+        );
+      }
+      return { resolved: false, perRecordErrors: [] };
+    }
+    const body = (await res.json().catch(() => ({}))) as {
       records?: { employeeId?: string; message?: string }[];
     };
     return {
