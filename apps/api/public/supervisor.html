@@ -468,6 +468,23 @@
         $('hrisFields').innerHTML = fields.length
           ? fields.map(f => `<label>${f.label} <input type="${f.secret ? 'password' : 'text'}" data-hf="${f.key}" value="${f.secret ? '' : (values[f.key] || '')}" placeholder="${f.secret && values[f.key] ? '(unchanged)' : ''}" style="width:150px"></label>`).join('')
           : '<span class="muted">No configuration required.</span>';
+        // Paycor punches need an activity-type GUID: offer the tenant's activity types
+        // by name as suggestions on that field (value stays the GUID Paycor expects).
+        const at = $('hrisFields').querySelector('[data-hf="activityTypeId"]');
+        if (at && provider === 'paycor') {
+          at.style.width = '300px';
+          at.setAttribute('list', 'hrisActivityTypes');
+          at.placeholder = 'loading activity types…';
+          fetch('/api/admin/hris/activity-types' + q).then(r => r.json()).then(d => {
+            const list = d.activityTypes || [];
+            let dl = document.getElementById('hrisActivityTypes');
+            if (!dl) { dl = document.createElement('datalist'); dl.id = 'hrisActivityTypes'; document.body.appendChild(dl); }
+            dl.innerHTML = list.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+            at.placeholder = list.length ? `pick one of ${list.length} activity types` : (d.error ? 'could not load activity types' : 'no activity types found');
+            const cur = list.find(a => a.id === at.value);
+            if (cur) at.title = cur.name;
+          }).catch(() => { at.placeholder = 'could not load activity types'; });
+        }
       }
       $('hrisProvider').addEventListener('change', () => renderHrisFields($('hrisProvider').value, {}));
       $('hrisSave').addEventListener('click', async () => {

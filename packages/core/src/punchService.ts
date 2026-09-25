@@ -19,6 +19,9 @@ export interface AgentContext {
   tenantId: string;
   timezone: string;
   hrisEmployeeId: string | null;
+  /** Provider write fields (Paycor department / activity-type GUIDs), if known. */
+  hrisDepartmentId?: string | null;
+  hrisActivityTypeId?: string | null;
 }
 
 export interface AppendResult {
@@ -89,6 +92,8 @@ export class PunchService {
               timeUtc: now,
               agentTimezone: agent.timezone,
               ...(opts.note ? { note: opts.note } : {}),
+              ...(agent.hrisDepartmentId ? { departmentId: agent.hrisDepartmentId } : {}),
+              ...(agent.hrisActivityTypeId ? { activityTypeId: agent.hrisActivityTypeId } : {}),
             },
           }
         : null,

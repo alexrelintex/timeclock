@@ -69,6 +69,7 @@ export const CONNECTORS: Record<string, ConnectorInfo> = {
       { key: 'clientId', label: 'Client ID' },
       { key: 'clientSecret', label: 'Client secret', secret: true },
       { key: 'refreshToken', label: 'Refresh token', secret: true },
+      { key: 'activityTypeId', label: 'Default activity type ID (required for punches)' },
       { key: 'mealPremiumEarningId', label: 'Meal-premium earning ID (optional)' },
     ],
     build(tenant, db) {
@@ -89,6 +90,7 @@ export const CONNECTORS: Record<string, ConnectorInfo> = {
         legalEntityId: Number(c.legalEntityId),
         subscriptionKey: opaque(c.subscriptionKey),
         employeeWriteConfig: (c.employeeWriteConfig as PaycorTenantConfig['employeeWriteConfig']) ?? {},
+        ...(c.activityTypeId ? { defaultActivityTypeId: opaque(c.activityTypeId) } : {}),
         ...(c.mealPremiumEarningId ? { mealPremiumEarningId: str(c.mealPremiumEarningId) } : {}),
       };
       return new PaycorAdapter(cfg, tokens);
