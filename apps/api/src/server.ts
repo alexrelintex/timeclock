@@ -1089,11 +1089,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       }
       // Paycor punches carry the activity type as a GUID; a name typed into the field
       // (e.g. "regular" when the picker could not load) would make every punch fail.
-      const act = typeof next.activityTypeId === 'string' ? next.activityTypeId.trim() : '';
-      if (provider === 'paycor' && act && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(act)) {
-        return sendJson(res, 400, {
-          error: `Default activity type must be the activity type's ID (a GUID), not a name — got "${act}". Pick it from the list, or look up the ID in Paycor.`,
-        });
+      // Only a value the admin is submitting now is rejected; a bad value already on
+      // file is dropped on save instead, so it can't block saving the connector.
+      const isGuid = (v: unknown) =>
+        typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim());
+      if (provider === 'paycor') {
+        const submitted = incoming.activityTypeId;
+        if (typeof submitted === 'string' && submitted.trim() && !isGuid(submitted)) {
+          return sendJson(res, 400, {
+            error: `Default activity type must be the activity type's ID (a GUID), not a name — got "${submitted.trim()}". Pick it from the list, or look up the ID in Paycor.`,
+          });
+        }
+        if (next.activityTypeId !== undefined && !isGuid(next.activityTypeId)) delete next.activityTypeId;
       }
       db.setTenantHris(r.tenant.id, provider === 'none' ? null : provider, info.configFields.length ? next : {});
       registry.invalidate(r.tenant.id); // rebuild the adapter from fresh config
