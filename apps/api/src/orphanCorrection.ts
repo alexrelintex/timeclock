@@ -123,6 +123,10 @@ export function resolveMissingClockout(
         proposedTimeUtc: estimated,
         agentTimezone: agent.timezone,
         note,
+        // Self-contained like a punch: Paycor requires the department GUID on a
+        // missed-punch request, and the adapter's per-employee map is not populated.
+        ...(agent.hrisDepartmentId ? { departmentId: agent.hrisDepartmentId } : {}),
+        ...(agent.hrisActivityTypeId ? { activityTypeId: agent.hrisActivityTypeId } : {}),
       },
     });
     synced = true;

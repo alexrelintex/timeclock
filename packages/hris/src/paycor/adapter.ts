@@ -269,6 +269,9 @@ export class PaycorAdapter implements HrisAdapter {
         activityTypeId,
         isTransfer: false,
         ...(p.note ? { note: p.note.slice(0, 300) } : {}),
+        // Paycor's optional cross-system tracking id: our append-only event id, so a
+        // punch in Paycor traces back to the exact Time-Clock record (and vice versa).
+        correlationId: p.punchEventId,
       };
     });
     // Fail the batch visibly (surfaces in the HRIS outbox) instead of throwing, so a
@@ -309,19 +312,35 @@ export class PaycorAdapter implements HrisAdapter {
     batch: CanonicalMissedPunchProposal[],
   ): Promise<PushOutcome> {
     const chunk = batch.slice(0, BATCH_CAP);
+    // Same resolution as punches: the proposal's own fields (stamped at enqueue) →
+    // the legacy per-employee map → the tenant default activity type. Department is
+    // required by MissedPunchRequest3; activity type is optional there.
+    const missing = new Set<string>();
     const body = chunk.map((m) => {
       const w = this.cfg.employeeWriteConfig[m.hrisEmployeeId];
-      if (!w) throw new Error(`Missing Paycor write config for ${m.hrisEmployeeId}`);
+      const departmentId = m.departmentId ?? w?.departmentId;
+      const activityTypeId = m.activityTypeId ?? w?.activityTypeId ?? this.cfg.defaultActivityTypeId;
+      if (!departmentId) missing.add(m.hrisEmployeeId);
       return {
         // VERIFIED MissedPunchRequest3: a proposed punch
         employeeId: m.hrisEmployeeId,
-        departmentId: w.departmentId,
+        departmentId,
         punchDateTime: toEmployeeLocalDateTime(m.proposedTimeUtc, m.agentTimezone),
         punchStatusType: m.proposedType === 'IN' ? 'In' : 'Out',
         isTransfer: false,
+        ...(activityTypeId ? { activityTypeId } : {}),
         ...(m.note ? { note: m.note.slice(0, 300) } : {}),
       };
     });
+    // A throw here aborted the whole drain — including the step that confirms
+    // submitted punches. Fail the batch visibly in the outbox instead.
+    if (missing.size) {
+      return {
+        kind: 'FAILED',
+        retryable: false,
+        error: `Missing Paycor departmentId for missed-punch request(s) of employee(s) ${[...missing].join(', ')} — re-pull so departments are captured.`,
+      };
+    }
     return this.asyncPost(
       `/v1/legalentities/${this.cfg.legalEntityId}/createMissedPunchRequests`,
       body,
