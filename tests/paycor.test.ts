@@ -152,6 +152,7 @@ async function writeMain(): Promise<void> {
   console.assert(row.activityTypeId === 'act-default', 'falls back to the tenant default activity type');
   console.assert(row.punchStatusType === 'In' && row.punchDateTime === '2026-09-25T09:00:00', 'In punch, employee-local time (PDT)');
   console.assert(out.kind === 'SUBMITTED', 'returns SUBMITTED with the tracking id');
+  console.assert(row.correlationId === 'ev-1', 'sends our punch event id as Paycor correlationId');
 
   // Missing both → FAILED (visible in the outbox), never a throw that wedges the drain.
   const b = new PaycorAdapter({ legalEntityId: 1, subscriptionKey: 'k', employeeWriteConfig: {} }, tokens, fetchImpl);
@@ -192,3 +193,26 @@ async function resolveMain(): Promise<void> {
 }
 
 resolveMain().catch((e) => { console.error(e); process.exit(1); });
+
+// -- missed-punch proposals: department stamped on the proposal; never throws --
+async function missedMain(): Promise<void> {
+  const tokens = { getAccessToken: async () => 'at', invalidate() {} };
+  let posted: { url: string; body: unknown } | null = null;
+  const fetchImpl = (async (u: string, init: RequestInit) => { posted = { url: u, body: JSON.parse(init.body as string) }; return res(200, { trackingId: 'mp-1' }); }) as unknown as AnyFetch;
+  const a = new PaycorAdapter({ legalEntityId: 199758, subscriptionKey: 'k', employeeWriteConfig: {}, defaultActivityTypeId: 'act-default' }, tokens, fetchImpl);
+  const prop = { correctionEventId: 'c-1', hrisEmployeeId: 'emp-1', proposedType: 'OUT' as const, proposedTimeUtc: new Date('2026-09-25T23:30:00Z'), agentTimezone: 'America/Los_Angeles', departmentId: 'dept-9', note: 'forgot to clock out' };
+  const out = await a.pushMissedPunchProposals([prop]);
+  const row = (posted!.body as Record<string, unknown>[])[0];
+  console.assert(/\/createMissedPunchRequests$/.test(posted!.url), 'POSTs to createMissedPunchRequests');
+  console.assert(row.departmentId === 'dept-9', 'uses the departmentId stamped on the proposal');
+  console.assert(row.activityTypeId === 'act-default', 'includes the tenant default activity type when present');
+  console.assert(row.punchStatusType === 'Out' && row.punchDateTime === '2026-09-25T16:30:00', 'Out, employee-local time (PDT)');
+  console.assert(out.kind === 'SUBMITTED', 'returns SUBMITTED');
+  let threw = false; let failed = null as { kind: string; retryable?: boolean } | null;
+  try { failed = (await a.pushMissedPunchProposals([{ ...prop, departmentId: undefined }])) as { kind: string; retryable?: boolean }; } catch { threw = true; }
+  console.assert(!threw && failed?.kind === 'FAILED' && failed.retryable === false, 'missing department → FAILED, not thrown (a throw aborted the whole drain)');
+  console.log('paycor missed-punch: all assertions passed');
+  finish('paycor-missed');
+}
+
+missedMain().catch((e) => { console.error(e); process.exit(1); });

@@ -46,6 +46,9 @@ export interface CanonicalMissedPunchProposal {
   proposedTimeUtc: Date;
   agentTimezone: string;
   note?: string; // agent attestation, <=300 chars pass-through
+  /** Provider write fields stamped at enqueue from the employee (see CanonicalPunch). */
+  departmentId?: string;
+  activityTypeId?: string;
 }
 
 export interface CanonicalMissedPunchDecision {
